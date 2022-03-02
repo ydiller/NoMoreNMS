@@ -79,6 +79,7 @@ def parse_args():
         default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--with_wandb', type=int, default=1)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -95,6 +96,7 @@ def parse_args():
 
 
 def main():
+    # os.environ["CUDA_VISIBLE_DEVICES"] = '2'
     args = parse_args()
 
     cfg = Config.fromfile(args.config)
@@ -142,6 +144,9 @@ def main():
         # re-set gpu_ids with distributed training mode
         _, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
+    if args.with_wandb is not None:
+        # update configs according to CLI args if args.work_dir is not None
+        cfg.model.train_cfg.rcnn.with_wandb = args.with_wandb
 
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
@@ -195,6 +200,45 @@ def main():
             CLASSES=datasets[0].CLASSES)
     # add an attribute for visualization convenience
     model.CLASSES = datasets[0].CLASSES
+
+    # print('train deepsets only')
+    # for v in model.parameters():
+    #     v.requires_grad = False
+    # for v in model.roi_head.ds1.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds2.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds3.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds4.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds5.parameters():
+    #     v.requires_grad = True
+
+    # for v in model.roi_head.ln1.parameters():
+    #     v.requires_grad = True
+    # # for v in model.roi_head.ln2.parameters():
+    # #     v.requires_grad = True
+    # # for v in model.roi_head.ln3.parameters():
+    # #     v.requires_grad = True
+    # for v in model.roi_head.ln4.parameters():
+    #     v.requires_grad = True
+    # # for v in model.roi_head.bn1.parameters():
+    # #     v.requires_grad = True
+    # # for v in model.roi_head.bn2.parameters():
+    # #     v.requires_grad = True
+    # # for v in model.roi_head.bn3.parameters():
+    # #     v.requires_grad = True
+    # # for v in model.roi_head.ds1.parameters():
+    # #     v.requires_grad = True
+    # # for v in model.roi_head.ds2.parameters():
+    # #     v.requires_grad = True
+    # # for v in model.roi_head.ds3.parameters():
+    # #     v.requires_grad = True
+    #
+    # for v in model.roi_head.set_transformer.parameters():
+    #     v.requires_grad = True
+
     train_detector(
         model,
         datasets,

@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import random
 import warnings
-
+import wandb
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -9,7 +9,7 @@ from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (DistSamplerSeedHook, EpochBasedRunner,
                          Fp16OptimizerHook, OptimizerHook, build_optimizer,
                          build_runner, get_dist_info)
-
+from tools.my_runner import MyRunner
 from mmdet.core import DistEvalHook, EvalHook
 from mmdet.datasets import (build_dataloader, build_dataset,
                             replace_ImageToTensor)
@@ -104,6 +104,7 @@ def train_detector(model,
             num_gpus=len(cfg.gpu_ids),
             dist=distributed,
             seed=cfg.seed,
+            shuffle=False,
             runner_type=runner_type,
             persistent_workers=cfg.data.get('persistent_workers', False))
         for ds in dataset
@@ -144,7 +145,8 @@ def train_detector(model,
             optimizer=optimizer,
             work_dir=cfg.work_dir,
             logger=logger,
-            meta=meta))
+            meta=meta,
+            with_wandb=cfg.model.train_cfg.rcnn.with_wandb))
 
     # an ugly workaround to make .log and .log.json filenames the same
     runner.timestamp = timestamp
@@ -205,4 +207,16 @@ def train_detector(model,
         runner.resume(cfg.resume_from)
     elif cfg.load_from:
         runner.load_checkpoint(cfg.load_from)
-    runner.run(data_loaders, cfg.workflow)
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            with wandb.init(name=f'train-dist {cfg.optimizer.lr}'):
+                runner.run(data_loaders, cfg.workflow)
+        else:
+            runner.run(data_loaders, cfg.workflow)
+    else:  # single gpu
+        if cfg.model.train_cfg.rcnn.with_wandb:
+            with wandb.init(name=f'train {cfg.optimizer.lr}'):
+                runner.run(data_loaders, cfg.workflow)
+        else:
+            runner.run(data_loaders, cfg.workflow)
+

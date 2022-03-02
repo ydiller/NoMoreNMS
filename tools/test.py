@@ -4,9 +4,10 @@ import os
 import os.path as osp
 import time
 import warnings
-
+import wandb
 import mmcv
 import torch
+import shutil
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
@@ -119,7 +120,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ['0', '1', '2', '3', '4', '6', '7']
     assert args.out or args.eval or args.format_only or args.show \
         or args.show_dir, \
         ('Please specify at least one operation (save/eval/format/show the '
@@ -221,14 +222,22 @@ def main():
         model.CLASSES = dataset.CLASSES
 
     if not distributed:
+        viz_dir = 'results/ds_error_test_set_by_object_max'
+        show_viz = 0
+        with_wandb = 0
+        if show_viz:
+            clean_dir(viz_dir)
+        # with wandb.init(name=f'test {cfg.model.test_cfg.rcnn.deepsets_config.max_num} '
+        #                      f'{cfg.model.test_cfg.rcnn.deepsets_config.top_c}'):
         model = MMDataParallel(model, device_ids=cfg.gpu_ids)
         outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
-                                  args.show_score_thr)
+                                  args.show_score_thr, viz_dir=viz_dir, show_viz=show_viz, with_wandb=with_wandb)
     else:
         model = MMDistributedDataParallel(
             model.cuda(),
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False)
+        # if torch.distributed.get_rank() == 0:
         outputs = multi_gpu_test(model, data_loader, args.tmpdir,
                                  args.gpu_collect)
 
@@ -255,6 +264,17 @@ def main():
             if args.work_dir is not None and rank == 0:
                 mmcv.dump(metric_dict, json_file)
 
+
+def clean_dir(folder):
+    for filename in os.listdir(folder):
+        file_path = os.path.join(folder, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            print('Failed to delete %s. Reason: %s' % (file_path, e))
 
 if __name__ == '__main__':
     main()

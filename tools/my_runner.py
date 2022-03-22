@@ -270,7 +270,7 @@ class MyRunner(BaseRunner):
 
     def save_checkpoint(self,
                         out_dir,
-                        filename_tmpl='end2end_epoch_{}.pth',
+                        filename_tmpl='epoch_{}.pth',
                         save_optimizer=True,
                         meta=None,
                         create_symlink=True):

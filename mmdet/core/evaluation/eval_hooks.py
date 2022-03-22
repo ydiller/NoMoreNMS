@@ -3,6 +3,7 @@ import bisect
 import os.path as osp
 import torch
 import mmcv
+import wandb
 import torch.distributed as dist
 from mmcv.runner import DistEvalHook as BaseDistEvalHook
 from mmcv.runner import EvalHook as BaseEvalHook
@@ -55,11 +56,48 @@ class EvalHook(BaseEvalHook):
         from mmdet.apis import single_gpu_test
         results = single_gpu_test(runner.model, self.dataloader, show=False)
         runner.log_buffer.output['eval_iter_num'] = len(self.dataloader)
-        key_score = self.evaluate(runner, results)
+        key_score = self.evaluate(runner, results)  # original - key_score is None
         if self.save_best:
             self._save_ckpt(runner, key_score)
+        if torch.distributed.is_initialized():
+            if torch.distributed.get_rank() == 0:
+                if self.with_wandb:
+                    wandb.log({"mAP": key_score['bbox_mAP']})
+        else:  # single gpu
+            if self.with_wandb:
+                wandb.log({"mAP": key_score['bbox_mAP']})
 
+    def evaluate(self, runner, results):
+        """Evaluate the results.
 
+        Args:
+            runner (:obj:`mmcv.Runner`): The underlined training runner.
+            results (list): Output results.
+        """
+        eval_res = self.dataloader.dataset.evaluate(
+            results, logger=runner.logger, **self.eval_kwargs)
+
+        for name, val in eval_res.items():
+            runner.log_buffer.output[name] = val
+        runner.log_buffer.ready = True
+
+        if self.save_best is not None:
+            # If the performance of model is pool, the `eval_res` may be an
+            # empty dict and it will raise exception when `self.save_best` is
+            # not None. More details at
+            # https://github.com/open-mmlab/mmdetection/issues/6265.
+            if not eval_res:
+                warnings.warn(
+                    'Since `eval_res` is an empty dict, the behavior to save '
+                    'the best checkpoint will be skipped in this evaluation.')
+                return None
+
+            if self.key_indicator == 'auto':
+                # infer from eval_results
+                self._init_rule(self.rule, list(eval_res.keys())[0])
+            return eval_res[self.key_indicator]
+
+        return eval_res
 # Note: Considering that MMCV's EvalHook updated its interface in V1.3.16,
 # in order to avoid strong version dependency, we did not directly
 # inherit EvalHook but BaseDistEvalHook.

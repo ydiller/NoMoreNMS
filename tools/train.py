@@ -201,9 +201,10 @@ def main():
     # add an attribute for visualization convenience
     model.CLASSES = datasets[0].CLASSES
 
-    # print('train deepsets only')
-    # for v in model.parameters():
-    #     v.requires_grad = False
+    print('train deepsets only')
+    for v in model.parameters():
+        v.requires_grad = False
+
     # for v in model.roi_head.ds1.parameters():
     #     v.requires_grad = True
     # for v in model.roi_head.ds2.parameters():
@@ -215,29 +216,29 @@ def main():
     # for v in model.roi_head.ds5.parameters():
     #     v.requires_grad = True
 
-    # for v in model.roi_head.ln1.parameters():
+    for v in model.roi_head.ln1.parameters():
+        v.requires_grad = True
+    # for v in model.roi_head.ln2.parameters():
     #     v.requires_grad = True
-    # # for v in model.roi_head.ln2.parameters():
-    # #     v.requires_grad = True
-    # # for v in model.roi_head.ln3.parameters():
-    # #     v.requires_grad = True
-    # for v in model.roi_head.ln4.parameters():
+    # for v in model.roi_head.ln3.parameters():
     #     v.requires_grad = True
-    # # for v in model.roi_head.bn1.parameters():
-    # #     v.requires_grad = True
-    # # for v in model.roi_head.bn2.parameters():
-    # #     v.requires_grad = True
-    # # for v in model.roi_head.bn3.parameters():
-    # #     v.requires_grad = True
-    # # for v in model.roi_head.ds1.parameters():
-    # #     v.requires_grad = True
-    # # for v in model.roi_head.ds2.parameters():
-    # #     v.requires_grad = True
-    # # for v in model.roi_head.ds3.parameters():
-    # #     v.requires_grad = True
-    #
-    # for v in model.roi_head.set_transformer.parameters():
+    for v in model.roi_head.ln4.parameters():
+        v.requires_grad = True
+    # for v in model.roi_head.bn1.parameters():
     #     v.requires_grad = True
+    # for v in model.roi_head.bn2.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.bn3.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds1.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds2.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.ds3.parameters():
+    #     v.requires_grad = True
+
+    for v in model.roi_head.set_transformer.parameters():
+        v.requires_grad = True
 
     train_detector(
         model,

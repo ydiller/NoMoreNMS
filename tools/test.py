@@ -222,7 +222,7 @@ def main():
         model.CLASSES = dataset.CLASSES
 
     if not distributed:
-        viz_dir = 'results/ds_error_test_set_by_object_max'
+        viz_dir = 'results/ds_error_test_set_by_object_mse'
         show_viz = 0
         with_wandb = 0
         if show_viz:

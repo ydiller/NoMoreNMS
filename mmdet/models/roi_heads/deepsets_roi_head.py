@@ -42,14 +42,14 @@ class SoftCrossEntropyLoss():
       p = F.log_softmax(y_hat, 0)
       # p = F.softmax(y_hat, 0)
       # w_labels = self.weights*y
-      valid_mask = y > iou_thr
-      # valid_inds = valid_mask.nonzero(as_tuple=False).squeeze(1)
       # loss = -(y[valid_inds]*p[valid_inds].T).mean()
       # loss = -(p[valid_inds]).mean()
       # loss = -torch.log(torch.sum(p[valid_mask]))
-      valid_mask = valid_mask.type(torch.float)/len(valid_mask.nonzero(as_tuple=False))
-      loss = -torch.mean(valid_mask*p.T)
-      # print(y[valid_inds])
+      # valid_mask = y > iou_thr
+      # valid_inds = valid_mask.nonzero(as_tuple=False).squeeze(1)
+      # valid_mask = valid_mask.type(torch.float)/len(valid_mask.nonzero(as_tuple=False))
+      # loss = -torch.mean(valid_mask*p.T)
+      loss = -torch.mean(y*p.T)
       return loss
 
    # def forward(self, y_hat, y, iou_thr):
@@ -71,19 +71,19 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                  test_cfg=None,
                  pretrained=None,
                  init_cfg=None,
-                 indim=1041,
+                 indim=1121,  # 1041
                  ds1=1000,  # previously 400
                  ds2=800,  # previously 150
                  ds3=600,  # previously 50
-                 set_size=6,
-                 reg=1,
+                 set_size=8,
+                 reg=0.8,
                  include_ds4=1,
                  loss_mse=dict(
                      type='MSELoss',
                      loss_weight=1.0),
                  loss_ce=dict(
                      type='CrossEntropyLoss',
-                     loss_weight=4.0)):
+                     loss_weight=1.0)):
         super(DeepsetsRoIHead, self).__init__(
             bbox_roi_extractor=bbox_roi_extractor,
             bbox_head=bbox_head,
@@ -215,7 +215,7 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             bbox_results = self._bbox_forward_train(x, sampling_results,
                                                     gt_bboxes, gt_labels,
                                                     img_metas)
-            losses.update(bbox_results['loss_bbox'])
+            # losses.update(bbox_results['loss_bbox'])
 
         # mask head forward and loss
         if self.with_mask:
@@ -235,10 +235,10 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         device = bboxes[0].get_device()
         ds_cfg = self.train_cfg['deepsets_config']
         loss_deepsets = dict()
-        loss_deepsets['loss_deepsets_ce'] = 0.
-        loss_deepsets['ds_acc'] = 0.
-        loss_deepsets['iou_error'] = 0.
-        loss_deepsets['ds_pred_on_max'] = 0.
+        loss_deepsets['loss_deepsets_ce'] = torch.zeros(1, requires_grad=True).cuda(device=device)
+        loss_deepsets['ds_acc'] = torch.zeros(1, requires_grad=True).cuda(device=device)
+        loss_deepsets['iou_error'] = torch.zeros(1, requires_grad=True).cuda(device=device)
+        loss_deepsets['ds_pred_on_max'] = torch.zeros(1, requires_grad=True).cuda(device=device)
         for i in range(num_imgs):
             bbox, score = self.bbox_head.get_bboxes(
                 rois[i],
@@ -303,14 +303,14 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         ###
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == 0:
-                wandb.log({"CE loss": loss_deepsets["loss_deepsets_ce"],
+                wandb.log({"MSE loss": loss_deepsets["loss_deepsets_ce"],
                            "ds_acc": loss_deepsets["ds_acc"],
                            "iou_error": loss_deepsets["iou_error"],
                            "max score predictions": loss_deepsets_i['ds_pred_on_max']
                            })
         else:
             if self.train_cfg.with_wandb:
-                wandb.log({"CE loss": loss_deepsets["loss_deepsets_ce"],
+                wandb.log({"MSE loss": loss_deepsets["loss_deepsets_ce"],
                            "ds_acc": loss_deepsets["ds_acc"],
                            "iou_error": loss_deepsets["iou_error"],
                            "max score predictions": loss_deepsets_i['ds_pred_on_max']
@@ -663,9 +663,11 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             inds = inds[:max_num]
             bboxes = bboxes[inds]
             feats = last_layer_feats[inds]
+            # feats = last_layer_feats
             ious = bbox_overlaps(bboxes, bboxes)
             is_clustered = torch.ones(ious.shape[0]).cuda(device=device)
             for j, row in enumerate(ious):
+                _set = []
                 if is_clustered[j] == 1:
                     selected_indices = torch.nonzero((row > iou_threshold) * is_clustered, as_tuple=False).squeeze()
                     is_clustered *= torch.where(row > iou_threshold, zero, one)
@@ -685,7 +687,17 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                     #         sets.append(selected_indices_wide)
                     #     if len(selected_indices_tall > 0):
                     #         sets.append(selected_indices_tall)
-                    # else:
+
+                    # for k in range(50, 102, 2):
+                    #     thr = k/100
+                    #     # valid_ious = (row > thr) & (row < thr + 0.05)
+                    #     valid_ious_inds = torch.nonzero((row >= thr) & (row < thr + 0.05), as_tuple=False)
+                    #     if len(torch.nonzero((row >= thr) & (row < thr + 0.05), as_tuple=False)) == 0:
+                    #         continue
+                    #     best_bin_score = torch.argmax(scores[(row >= thr) & (row < thr + 0.05)])
+                    #     _set.append(valid_ious_inds[best_bin_score])
+                    #     # if len(valid_ious_inds)>0:
+                    # sets.append(torch.tensor(_set).cuda(device=device))
                     sets.append(selected_indices)
 
             for s, _set in enumerate(sets):
@@ -706,8 +718,8 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 set_area_sum = area/torch.sum(area)
                 set_aspect_mean = aspect_ratio/torch.mean(aspect_ratio)
                 set_aspect_sum = aspect_ratio/torch.sum(aspect_ratio)
-                # one_hot_classes = torch.zeros((1, num_classes)).repeat(len(_set), 1).cuda(device=device)
-                # one_hot_classes[:, c] = 1
+                one_hot_classes = torch.zeros((1, num_classes)).repeat(len(_set), 1).cuda(device=device)
+                one_hot_classes[:, c] = 1
                 centroids = torch.cat([x2-x1, y2-1], dim=1).cuda(device=device)
                 set_dist_mean = torch.mean(torch.cdist(centroids, centroids, p=2), 1).unsqueeze(1)
                 set_dist_sum = torch.sum(torch.cdist(centroids, centroids, p=2), 1).unsqueeze(1)
@@ -715,17 +727,19 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 set_ious_sum = torch.sum(ious[sets[s]][:, sets[s]], 1).unsqueeze(1)
                 input = torch.cat([bboxes[sets[s]], feats[sets[s]], width, height, aspect_ratio, area, set_ious_mean,
                                    set_ious_sum, set_dist_mean, set_dist_sum, set_area_mean, set_area_sum,
-                                   set_aspect_mean, set_aspect_sum, scores[sets[s]].unsqueeze(1)], dim=1)
+                                   set_aspect_mean, set_aspect_sum, one_hot_classes, scores[sets[s]].unsqueeze(1)], dim=1)
+                # input = torch.cat([set_ious_mean, set_ious_sum, set_dist_mean, set_dist_sum, set_area_mean, set_area_sum,
+                #                    set_aspect_mean, set_aspect_sum], dim=1)
                 _set_bboxes = bboxes[sets[s]]
                 # _set_scores = scores[sets[s]].unsqueeze(1)
                 # if len(input) < self.set_size:
                 #     # zero padding
-                #     input = torch.cat([input, torch.zeros((self.set_size - input.shape[0]), input.shape[1]).cuda()], 0)
-                #     _set_bboxes = torch.cat([_set_bboxes, torch.zeros((self.set_size - _set_bboxes.shape[0]), _set_bboxes.shape[1]).cuda()], 0)
-                # else:
-                # _, top_scores_idx = input[:, -1].sort(descending=True)
-                # input = input[top_scores_idx]
-                # _set_bboxes = _set_bboxes[top_scores_idx]
+                #     input = torch.cat([input, torch.zeros((self.set_size - input.shape[0]), input.shape[1]).cuda(device=device)], 0)
+                #     _set_bboxes = torch.cat([_set_bboxes, torch.zeros((self.set_size - _set_bboxes.shape[0]), _set_bboxes.shape[1]).cuda(device=device)], 0)
+                # if len(input) > self.set_size:
+                #     _, top_scores_idx = input[:, -1].sort(descending=True)
+                #     input = input[top_scores_idx][:self.set_size]
+                #     _set_bboxes = _set_bboxes[top_scores_idx][:self.set_size]
                 randperm = torch.randperm(len(input))
                 input = input[randperm]
                 set_bboxes.append(_set_bboxes[randperm])
@@ -784,7 +798,7 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                     continue
                 soft_targets.append(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx]+sys.float_info.epsilon))
                 # soft_targets.append(gt_iou[:, col_idx] / torch.sum(gt_iou[:, col_idx]))
-                # soft_targets.append(torch.pow(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx] + sys.float_info.epsilon), 3))
+                # soft_targets.append(torch.pow(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx] + sys.float_info.epsilon), 2))
                 # soft_targets.append(gt_iou[:, col_idx])
                 # t = gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx]+sys.float_info.epsilon)
                 # t -= t.min(0, keepdim=True)[0]
@@ -800,6 +814,7 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 valid_preds.append(preds[j])
                 valid_set_bboxes.append(set_bboxes[j])
                 valid_set_scores.append(sets[j][:, -1])
+                # valid_set_scores.append(set_scores[j])
                 valid_ious.append(gt_iou[:, col_idx])
                     # soft x-ent
                     # trg = gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx] + sys.float_info.epsilon)
@@ -841,6 +856,7 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 #     torch.argmax(one_hot_targets[i]).unsqueeze(0))
                 _ds_acc += torch.argmax(pred) == torch.argmax(one_hot_targets[i])
                 iou_error += torch.max(valid_ious[i]) - valid_ious[i][torch.argmax(pred)]
+                # iou_error += torch.max(soft_targets[i]) - soft_targets[i][torch.argmax(pred)]
                 _ds_pred_on_max += torch.argmax(pred) == torch.argmax(valid_set_scores[i])
 
                 #nms testing:
@@ -848,13 +864,13 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 # iou_error += torch.max(valid_ious[i]) - valid_ious[i][torch.argmax(valid_set_scores[i])]
 
                 # else:
-                # _mse_loss += self.loss_mse(  # self.loss_ms
-                #     pred,  # pred.squeeze()
-                #     soft_targets[i])
+                _ce_loss += self.loss_mse(  # self.loss_ms
+                    pred.squeeze(),  # pred.squeeze()
+                    soft_targets[i])
                     # _ds_acc += torch.argmax(pred) == torch.argmax(deepsets_targets[i])
                     # _ds_pred_on_max += pred[torch.argmax(deepsets_targets[i])]
                 # _error += torch.sum(torch.abs(deepsets_targets[i]-pred.squeeze()))/pred.shape[0]
-                _ce_loss += SoftCrossEntropyLoss().forward(pred, soft_targets[i], 0.98)
+                # _ce_loss += SoftCrossEntropyLoss().forward(pred, soft_targets[i], 0.85)
                 c += 1
             _ce_loss /= c
             # _mse_loss /= c

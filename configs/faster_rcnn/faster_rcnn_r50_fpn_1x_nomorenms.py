@@ -51,8 +51,8 @@ model = dict(
                 target_stds=[0.1, 0.1, 0.2, 0.2]),
             reg_class_agnostic=False,
             loss_cls=dict(
-                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-            loss_bbox=dict(type='L1Loss', loss_weight=1.0))),
+                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=0.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=0.0))),
         # deepsets_head=dict(
         #         type='DeepsetsHead',
         #         loss_mse=dict(
@@ -111,7 +111,7 @@ model = dict(
                 loss_mse=dict(
                     type='MSELoss', loss_weight=0.0),
                 loss_ce=dict(
-                    type='CrossEntropyLoss', loss_weight=4.0),
+                    type='CrossEntropyLoss', loss_weight=1.0),
                 ds1=1000,
                 ds2=600,
                 ds3=300,
@@ -174,7 +174,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=4,
+    samples_per_gpu=2,
     workers_per_gpu=0,
     train=dict(
         type=dataset_type,
@@ -188,7 +188,7 @@ data = dict(
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_val2017_100.json',
+        ann_file=data_root + 'annotations/instances_val2017.json',
         img_prefix=data_root + 'images/val2017/',
         pipeline=test_pipeline,
         samples_per_gpu=6))
@@ -196,7 +196,7 @@ data = dict(
 # evaluation = dict(interval=1, metric='bbox')
 
 # optimizer
-optimizer = dict(type='Adam', lr=0.00005*4, weight_decay=0.00000001)
+optimizer = dict(type='Adam', lr=0.00001, weight_decay=0.00000001)
 optimizer_config = dict(grad_clip=None)
 # learning policy
 lr_config = dict(
@@ -223,6 +223,7 @@ custom_hooks = [dict(type='NumClassCheckHook')]
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 load_from = '/data/pretrained_models/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth'
+# resume_from = 'work_dirs/faster_rcnn_r50_fpn_1x_nomorenms/epoch_1_08.pth'
 resume_from = None
 workflow = [('train', 1), ('val', 1)]
 

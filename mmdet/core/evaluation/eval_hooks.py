@@ -61,10 +61,10 @@ class EvalHook(BaseEvalHook):
             self._save_ckpt(runner, key_score)
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == 0:
-                if self.with_wandb:
+                if runner.with_wandb:
                     wandb.log({"mAP": key_score['bbox_mAP']})
         else:  # single gpu
-            if self.with_wandb:
+            if runner.with_wandb:
                 wandb.log({"mAP": key_score['bbox_mAP']})
 
     def evaluate(self, runner, results):

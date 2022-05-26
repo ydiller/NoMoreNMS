@@ -53,8 +53,10 @@ class MyHook(Hook):
         runner.optimizer.zero_grad()
         if self.detect_anomalous_params:
             self.detect_anomalous_parameters(runner.outputs['loss'], runner)
-        if runner.outputs['loss'] is not None:
+        if runner.outputs['loss']:
             runner.outputs['loss'].backward()
+        else:
+            print('no loss')
         if self.grad_clip is not None:
             grad_norm = self.clip_grads(runner.model.parameters())
             if grad_norm is not None:

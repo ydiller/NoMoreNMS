@@ -21,7 +21,7 @@ from mmdet.utils import collect_env, get_root_logger, setup_multi_processes
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
-    parser.add_argument('config', help='train config file path')
+    parser.add_argument('--config', help='train config file path')
     parser.add_argument('--work-dir', help='the dir to save logs and models')
     parser.add_argument(
         '--resume-from', help='the checkpoint file to resume from')
@@ -80,6 +80,14 @@ def parse_args():
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--with_wandb', type=int, default=1)
+    parser.add_argument('--lr', type=float, default=None)
+    parser.add_argument('--wd', type=float, default=None)
+    parser.add_argument('--bs', type=int, default=None)
+    parser.add_argument('--dim_input', type=int, default=None)
+    parser.add_argument('--dim_output', type=int, default=None)
+    parser.add_argument('--l1_weight', type=int, default=None)
+    parser.add_argument('--giou_weight', type=int, default=None)
+    parser.add_argument('--giou_coef', type=float, default=None)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -145,8 +153,23 @@ def main():
         _, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
     if args.with_wandb is not None:
-        # update configs according to CLI args if args.work_dir is not None
         cfg.model.train_cfg.rcnn.with_wandb = args.with_wandb
+    if args.lr is not None:
+        cfg.optimizer.lr = args.lr
+    if args.wd is not None:
+        cfg.optimizer.weight_decay = args.wd
+    if args.bs is not None:
+        cfg.data.samples_per_gpu = args.bs
+    if args.dim_input is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.dim_input = args.dim_input
+    if args.dim_output is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.dim_output = args.dim_output
+    if args.l1_weight is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.l1_weight = args.l1_weight
+    if args.giou_weight is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.giou_weight = args.giou_weight
+    if args.giou_coef is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.giou_coef = args.giou_coef
 
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
@@ -205,6 +228,15 @@ def main():
     for v in model.parameters():
         v.requires_grad = False
 
+    # for v in model.backbone.parameters():
+    #     v.requires_grad = False
+    # for v in model.neck.parameters():
+    #     v.requires_grad = False
+    # for v in model.rpn_head.parameters():
+    #     v.requires_grad = False
+    # for v in model.roi_head.bbox_head.shared_fcs.parameters():
+    #     v.requires_grad = False
+
     # for v in model.roi_head.ds1.parameters():
     #     v.requires_grad = True
     # for v in model.roi_head.ds2.parameters():
@@ -222,7 +254,11 @@ def main():
     #     v.requires_grad = True
     # for v in model.roi_head.ln3.parameters():
     #     v.requires_grad = True
-    for v in model.roi_head.ln4.parameters():
+    # for v in model.roi_head.ln4.parameters():
+    #     v.requires_grad = True
+    for v in model.roi_head.ln5.parameters():
+        v.requires_grad = True
+    for v in model.roi_head.ln6.parameters():
         v.requires_grad = True
     # for v in model.roi_head.bn1.parameters():
     #     v.requires_grad = True

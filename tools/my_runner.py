@@ -167,7 +167,13 @@ class MyRunner(BaseRunner):
             self.run_iter(data_batch, train_mode=True, **kwargs)
             self.call_hook('after_train_iter')
             self._iter += 1
-
+            if torch.distributed.is_initialized():
+                if torch.distributed.get_rank() == 0:
+                    if self.with_wandb:
+                        wandb.log({"lr": self.optimizer.param_groups[0]['lr']})
+            else:
+                if self.with_wandb:
+                    wandb.log({"lr": self.optimizer.param_groups[0]['lr']})
         self.call_hook('after_train_epoch')
         self._epoch += 1
 
@@ -188,24 +194,24 @@ class MyRunner(BaseRunner):
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == 0:
                 if self.with_wandb:
-                    wandb.log({"CE val loss": sum(self.log_buffer.val_history['loss_deepsets_ce'])/
-                                              len(self.log_buffer.val_history['loss_deepsets_ce']),
-                               "val ds_acc": sum(self.log_buffer.val_history['ds_acc'])/
-                                  len(self.log_buffer.val_history['ds_acc']),
-                               "val iou_error": sum(self.log_buffer.val_history['iou_error'])/len(self.log_buffer.val_history['iou_error']),
-                               "val max score predictions": sum(self.log_buffer.val_history['ds_pred_on_max'])/
-                                                            len(self.log_buffer.val_history['ds_pred_on_max'])
-                               })
+                    wandb.log({"val loss": sum(self.log_buffer.val_history['loss_deepsets_total'])/
+                                              len(self.log_buffer.val_history['loss_deepsets_total'])})
+                               # "val ds_acc": sum(self.log_buffer.val_history['ds_acc'])/
+                               #    len(self.log_buffer.val_history['ds_acc']),
+                               # "val iou_error": sum(self.log_buffer.val_history['iou_error'])/len(self.log_buffer.val_history['iou_error']),
+                               # "val max score predictions": sum(self.log_buffer.val_history['ds_pred_on_max'])/
+                               #                              len(self.log_buffer.val_history['ds_pred_on_max'])
+                               # })
         else:  # single gpu
             if self.with_wandb:
-                wandb.log({"CE val loss": sum(self.log_buffer.val_history['loss_deepsets_ce']) /
-                                          len(self.log_buffer.val_history['loss_deepsets_ce']),
-                           "val ds_acc": sum(self.log_buffer.val_history['ds_acc']) /
-                                         len(self.log_buffer.val_history['ds_acc']),
-                           "val iou_error": sum(self.log_buffer.val_history['iou_error']) / len(
-                               self.log_buffer.val_history['iou_error']),
-                           "val max score predictions": sum(self.log_buffer.val_history['ds_pred_on_max']) /
-                                                        len(self.log_buffer.val_history['ds_pred_on_max'])})
+                wandb.log({"val loss": sum(self.log_buffer.val_history['loss_deepsets_total']) /
+                                          len(self.log_buffer.val_history['loss_deepsets_total'])})
+                           # "val ds_acc": sum(self.log_buffer.val_history['ds_acc']) /
+                           #               len(self.log_buffer.val_history['ds_acc']),
+                           # "val iou_error": sum(self.log_buffer.val_history['iou_error']) / len(
+                           #     self.log_buffer.val_history['iou_error']),
+                           # "val max score predictions": sum(self.log_buffer.val_history['ds_pred_on_max']) /
+                           #                              len(self.log_buffer.val_history['ds_pred_on_max'])})
 
 
     def run(self, data_loaders, workflow, max_epochs=None, **kwargs):

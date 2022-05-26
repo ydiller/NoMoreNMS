@@ -383,6 +383,15 @@ class CocoDataset(CustomDataset):
         result_files = self.results2json(results, jsonfile_prefix)
         return result_files, tmp_dir
 
+    def print_box_mean_size(self, results):
+        acc_boxes = np.empty((0, 4), float)
+        for res in results:
+            for cls in res:
+                if len(cls):
+                    acc_boxes = np.concatenate((acc_boxes, cls[:, :4]), 0)
+        boxes_area = (acc_boxes[:, 2] - acc_boxes[:, 0]) * (acc_boxes[:, 3] - acc_boxes[:, 1])
+        print(f"mean boxes area = {np.mean(boxes_area)}")
+
     def evaluate(self,
                  results,
                  metric='bbox',
@@ -590,6 +599,9 @@ class CocoDataset(CustomDataset):
                 eval_results[f'{metric}_mAP_copypaste'] = (
                     f'{ap[0]:.3f} {ap[1]:.3f} {ap[2]:.3f} {ap[3]:.3f} '
                     f'{ap[4]:.3f} {ap[5]:.3f}')
+
+                self.print_box_mean_size(results)
+
         if tmp_dir is not None:
             tmp_dir.cleanup()
         return eval_results

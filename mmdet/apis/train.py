@@ -209,13 +209,13 @@ def train_detector(model,
         runner.load_checkpoint(cfg.load_from)
     if torch.distributed.is_initialized():
         if torch.distributed.get_rank() == 0:
-            with wandb.init(name=f'train-dist {cfg.optimizer.lr}'):
+            with wandb.init(name=f'train-dist {cfg.optimizer.lr}', settings=wandb.Settings(start_method="thread"), config=dict(cfg)):
                 runner.run(data_loaders, cfg.workflow)
         else:
             runner.run(data_loaders, cfg.workflow)
     else:  # single gpu
         if cfg.model.train_cfg.rcnn.with_wandb:
-            with wandb.init(name=f'train {cfg.optimizer.lr}'):
+            with wandb.init(name=f'train {cfg.optimizer.lr}', config=dict(cfg)):
                 runner.run(data_loaders, cfg.workflow)
         else:
             runner.run(data_loaders, cfg.workflow)

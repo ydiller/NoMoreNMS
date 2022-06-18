@@ -361,25 +361,35 @@ class BBoxTestMixin:
 
             det_bbox_list = []
             det_labels_list = []
-            sets, preds, set_labels, set_bboxes, centoirds = self._forward_deepsets(bboxes, scores, feats[i],
+            sets, preds, set_labels, set_bboxes, set_scores, centroids, normalization_data = self._forward_deepsets(bboxes, scores, feats[i],
                                                                              mode='test', ds_cfg=rcnn_test_cfg['deepsets_config'],
                                                                              img_shape=img_shapes[i], device=device, score_thr=0.05)
             one = torch.ones((1, 1)).cuda(device=device)
             for j, _set in enumerate(sets):
                 bbox = preds[j].T
-                centoirds_per_set = centoirds[j]
-                bbox[:, 2] = (centoirds_per_set[0] + (bbox[:, 2])) * img_shapes[i][1]
-                bbox[:, 3] = (centoirds_per_set[1] + (bbox[:, 3])) * img_shapes[i][0]
-                bbox[:, 0] = (centoirds_per_set[0] - (bbox[:, 0])) * img_shapes[i][1]
-                bbox[:, 1] = (centoirds_per_set[1] - (bbox[:, 1])) * img_shapes[i][0]
-                # if _set.sum(1).max() == _set.sum():  # only one element in set
-                #     bbox[:, :4] = set_bboxes[j][torch.argmax(_set.sum(1))]
-                # bbox[:, 2] = (bbox[:, 0] + bbox[:, 2]) * img_shapes[i][1]
-                # bbox[:, 3] = (bbox[:, 1] + bbox[:, 3]) * img_shapes[i][0]
-                # bbox[:, 0] = bbox[:, 0] * img_shapes[i][1]
-                # bbox[:, 1] = bbox[:, 1] * img_shapes[i][0]
-                score = torch.max(_set[:, -1]) * torch.ones(1, 1).cuda(device=device)
-                bbox = torch.cat([bbox, score, one * j, one * j], dim=1)  # added prediction
+                centroids_per_set = centroids[j]
+                ndps = normalization_data[j]
+                # bbox[:, 2] = (centroids_per_set[0] + (bbox[:, 2])) * img_shapes[i][1]
+                # bbox[:, 3] = (centroids_per_set[1] + (bbox[:, 3])) * img_shapes[i][0]
+                # bbox[:, 0] = (centroids_per_set[0] - (bbox[:, 0])) * img_shapes[i][1]
+                # bbox[:, 1] = (centroids_per_set[1] - (bbox[:, 1])) * img_shapes[i][0]
+
+                bbox[:, 2] = ((bbox[:, 2]*ndps['x2_std'])+ndps['x2_mean']) * img_shapes[i][1]
+                bbox[:, 3] = ((bbox[:, 3]*ndps['y2_std'])+ndps['y2_mean']) * img_shapes[i][0]
+                bbox[:, 0] = ((bbox[:, 0]*ndps['x1_std'])+ndps['x1_mean']) * img_shapes[i][1]
+                bbox[:, 1] = ((bbox[:, 1]*ndps['y1_std'])+ndps['y1_mean']) * img_shapes[i][0]
+
+                # bbox[:, 2] = ((bbox[:, 2])+ndps['x2_mean']) * img_shapes[i][1]
+                # bbox[:, 3] = ((bbox[:, 3])+ndps['y2_mean']) * img_shapes[i][0]
+                # bbox[:, 0] = ((bbox[:, 0])+ndps['x1_mean']) * img_shapes[i][1]
+                # bbox[:, 1] = ((bbox[:, 1])+ndps['y1_mean']) * img_shapes[i][0]
+
+                if set_bboxes[j][:, 0].sum() == set_bboxes[j][0, 0]:  # only one element in set
+                    bbox[:, :4] = set_bboxes[j][torch.argmax(_set.sum(1))]
+                original_set_size = sum(_set.sum(1) != 0)
+                # score = torch.max(_set[:, -1]) * torch.ones(1, 1).cuda(device=device)
+                score = torch.max(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
+                bbox = torch.cat([bbox, score, one * original_set_size, one * j], dim=1)
                 det_bbox_list.append(bbox)
                 label = set_labels[j].unsqueeze(0)
                 det_labels_list.append(label)
@@ -393,7 +403,7 @@ class BBoxTestMixin:
                     det_label = det_label.unsqueeze(0)
             else:
                 det_bbox = torch.zeros((1, 7), device=device)
-                det_label = torch.ones((1), dtype=int, device=device)*(scores.shape[1]-1)
+                det_label = torch.zeros((1), dtype=int, device=device)*(scores.shape[1]-1)
             k = rcnn_test_cfg.max_per_img
 
             _, inds = det_bbox[:, 4].sort(descending=True)  # at original file: bboxes[:, -1]

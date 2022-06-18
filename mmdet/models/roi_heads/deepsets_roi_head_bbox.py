@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import wandb
+import datetime
 import torch.nn.functional as F
 import numpy as np
 import sys
@@ -13,6 +14,8 @@ from mmdet.core.bbox.iou_calculators.iou2d_calculator import bbox_overlaps
 from tools.set_transformer import SetTransformer
 
 DS_TYPE = 'hard'  # soft | hard
+
+
 class PermEqui2_mean(nn.Module):
     def __init__(self, in_dim, out_dim):
         super().__init__()
@@ -20,7 +23,6 @@ class PermEqui2_mean(nn.Module):
         self.Lambda = nn.Linear(in_dim, out_dim, bias=False)
         self.weight = self.Gamma.weight
         self.bias = self.Gamma.bias
-
 
     def forward(self, x):
         # if x.ndim == 1:
@@ -34,75 +36,79 @@ class PermEqui2_mean(nn.Module):
 
 
 class SoftCrossEntropyLoss():
-   def __init__(self):
-      super().__init__()
-      # self.weights = weights
+    def __init__(self):
+        super().__init__()
+        # self.weights = weights
 
-   def forward(self, y_hat, y, iou_thr):
-      p = F.log_softmax(y_hat, 0)
-      # p = F.softmax(y_hat, 0)
-      # w_labels = self.weights*y
-      # loss = -(y[valid_inds]*p[valid_inds].T).mean()
-      # loss = -(p[valid_inds]).mean()
-      # loss = -torch.log(torch.sum(p[valid_mask]))
-      # valid_mask = y > iou_thr
-      # valid_inds = valid_mask.nonzero(as_tuple=False).squeeze(1)
-      # valid_mask = valid_mask.type(torch.float)/len(valid_mask.nonzero(as_tuple=False))
-      # loss = -torch.mean(valid_mask*p.T)
-      loss = -torch.mean(y*p.T)
-      return loss
+    def forward(self, y_hat, y, iou_thr):
+        p = F.log_softmax(y_hat, 0)
+        # p = F.softmax(y_hat, 0)
+        # w_labels = self.weights*y
+        # loss = -(y[valid_inds]*p[valid_inds].T).mean()
+        # loss = -(p[valid_inds]).mean()
+        # loss = -torch.log(torch.sum(p[valid_mask]))
+        # valid_mask = y > iou_thr
+        # valid_inds = valid_mask.nonzero(as_tuple=False).squeeze(1)
+        # valid_mask = valid_mask.type(torch.float)/len(valid_mask.nonzero(as_tuple=False))
+        # loss = -torch.mean(valid_mask*p.T)
+        loss = -torch.mean(y * p.T)
+        return loss
 
-   # def forward(self, y_hat, y, iou_thr):
-   #    p = F.log_softmax(y*y_hat.T, 1)
-   #    loss = -p[torch.argmax(y_hat)]
-   #    return loss
+    # def forward(self, y_hat, y, iou_thr):
+    #    p = F.log_softmax(y*y_hat.T, 1)
+    #    loss = -p[torch.argmax(y_hat)]
+    #    return loss
 
 
 class GIOUuLoss():
-   def __init__(self):
-      super().__init__()
+    def __init__(self):
+        super().__init__()
 
-
-   def forward(self, pr_bboxes, gt_bboxes, giou_coef=1.0, reduction='mean'):
-    """
+    def forward(self, pr_bboxes, gt_bboxes, giou_coef=1.0, reduction='mean'):
+        """
     gt_bboxes: tensor (-1, 4) xyxy
     pr_bboxes: tensor (-1, 4) xyxy
     loss proposed in the paper of giou
     """
-    gt_area = (gt_bboxes[:, 2]-gt_bboxes[:, 0])*(gt_bboxes[:, 3]-gt_bboxes[:, 1])
-    pr_area = (pr_bboxes[:, 2]-pr_bboxes[:, 0])*(pr_bboxes[:, 3]-pr_bboxes[:, 1])
+        gt_area = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (gt_bboxes[:, 3] - gt_bboxes[:, 1])
+        pr_area = (pr_bboxes[:, 2] - pr_bboxes[:, 0]) * (pr_bboxes[:, 3] - pr_bboxes[:, 1])
 
-    # iou
-    lt = torch.max(gt_bboxes[:, :2], pr_bboxes[:, :2])
-    rb = torch.min(gt_bboxes[:, 2:], pr_bboxes[:, 2:])
-    TO_REMOVE = 1
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)  # original
-    # wh = (rb - lt).clamp(min=0)  # width height of intersection
-    inter = wh[:, 0] * wh[:, 1]
-    union = gt_area + pr_area - inter
-    iou = inter / union
-    # enclosure
-    lt = torch.min(gt_bboxes[:, :2], pr_bboxes[:, :2])
-    rb = torch.max(gt_bboxes[:, 2:], pr_bboxes[:, 2:])
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    enclosure = wh[:, 0] * wh[:, 1]
+        # iou
+        lt = torch.max(gt_bboxes[:, :2], pr_bboxes[:, :2])
+        rb = torch.min(gt_bboxes[:, 2:], pr_bboxes[:, 2:])
+        TO_REMOVE = 1
+        # wh = (rb - lt + TO_REMOVE).clamp(min=0)  # original
+        wh = (rb - lt).clamp(min=0)  # width height of intersection
+        inter = wh[:, 0] * wh[:, 1]
+        union = gt_area + pr_area - inter
+        iou = inter / union
+        # enclosure
+        lt = torch.min(gt_bboxes[:, :2], pr_bboxes[:, :2])
+        rb = torch.max(gt_bboxes[:, 2:], pr_bboxes[:, 2:])
+        # wh = (rb - lt + TO_REMOVE).clamp(min=0)
+        wh = (rb - lt).clamp(min=0)
+        enclosure = wh[:, 0] * wh[:, 1]
 
-    giou = iou - giou_coef*(enclosure-union)/enclosure  # not original - multiply by 0.4 to reduce inner box phenomena
-    loss = 1. - giou
-    if reduction == 'mean':
-        loss = loss.mean()
-    elif reduction == 'sum':
-        loss = loss.sum()
-    elif reduction == 'none':
-        pass
-    if loss < 0:
-        print(f"negative giou loss. pred = {pr_bboxes}\n gt= {gt_bboxes} \n iou: {iou} \n "
-              f"enclusure: {enclosure} \n union= {union}")
-    return loss
+        giou = iou - giou_coef * (
+                    enclosure - union) / enclosure  # not original - multiply by 0.4 to reduce inner box phenomena
+        loss = 1. - giou
+        if reduction == 'mean':
+            loss = loss.mean()
+        elif reduction == 'sum':
+            loss = loss.sum()
+        elif reduction == 'none':
+            pass
+        if loss < 0:
+            print(f"negative giou loss. pred = {pr_bboxes}\n gt= {gt_bboxes} \n iou: {iou} \n "
+                  f"enclusure: {enclosure} \n union= {union}")
+            loss = 1.
+        return loss
+
 
 @HEADS.register_module()
 class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
     """Simplest base roi head including one bbox head and one mask head."""
+
     def __init__(self,
                  bbox_roi_extractor=None,
                  bbox_head=None,
@@ -113,7 +119,6 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                  test_cfg=None,
                  pretrained=None,
                  init_cfg=None,
-                 indim=1121,  # 1121
                  reg=0.8,
                  include_ds4=1,
                  loss_mse=dict(
@@ -147,31 +152,44 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         # if not include_ds4:
         #     self.ds4 = PermEqui2_mean(ds3, 1)
         # else:
-            # self.ds4 = PermEqui2_mean(ds3, int(ds3/2))
-            # self.bn4 = torch.nn.BatchNorm1d(int(ds3/2))
+        # self.ds4 = PermEqui2_mean(ds3, int(ds3/2))
+        # self.bn4 = torch.nn.BatchNorm1d(int(ds3/2))
         # self.ds5 = PermEqui2_mean(int(ds3/2), 1)
         self.curr_cfg = train_cfg if train_cfg else test_cfg
         self.set_size = self.curr_cfg.deepsets_config.set_size
+        self.indim = self.curr_cfg.deepsets_config.indim
         self.dim_input = self.curr_cfg.deepsets_config.dim_input
         self.dim_output = self.curr_cfg.deepsets_config.dim_output
         self.l1_weight = self.curr_cfg.deepsets_config.l1_weight
         self.giou_weight = self.curr_cfg.deepsets_config.giou_weight
         self.giou_coef = self.curr_cfg.deepsets_config.giou_coef
-        self.ln1 = torch.nn.Linear(indim, self.dim_input)
-        # self.ln2 = torch.nn.Linear(512, 256)
+        # self.ln1 = torch.nn.Linear(self.indim, self.dim_input)
+        self.dim_hidden = self.curr_cfg.deepsets_config.dim_hidden
+        self.num_inds = self.curr_cfg.deepsets_config.num_inds
+        self.num_heads = self.curr_cfg.deepsets_config.num_heads
+        # self.ln2 = torch.nn.Linear(1024, 6)
+        # self.dropout = nn.Dropout(0.25)
         # self.ln3 = torch.nn.Linear(256, 128)
         # self.bn1 = torch.nn.BatchNorm1d(128)
         # self.bn2 = torch.nn.BatchNorm1d(256)
         # self.bn3 = torch.nn.BatchNorm1d(128)
-        # self.ds1 = PermEqui2_mean(128, 128)
+        # self.ds1 = PermEqui2_mean(self.dim_input, self.dim_output)
         # self.ds2 = PermEqui2_mean(128, 128)
         # self.ds3 = PermEqui2_mean(128, 1)
-
-        self.set_transformer = SetTransformer(dim_input=self.dim_input, num_outputs=self.dim_output, dim_output=1, num_inds=16, dim_hidden=32, #128
-                                              num_heads=4, ln=False, mode="dense")
+        # self.set_transformer = SetTransformer(dim_input=self.dim_input, num_outputs=self.dim_output, dim_output=1, num_inds=16, dim_hidden=128,  # original
+        #                                       num_heads=4, ln=False, mode="dense")
+        # self.set_transformer = SetTransformer(dim_input=self.dim_input, num_outputs=self.dim_output, dim_output=1, num_inds=16, dim_hidden=128,  # original
+        #                                       num_heads=4, ln=False, mode="dense")
+        self.set_transformer = SetTransformer(dim_input=self.dim_input, num_outputs=self.dim_output, dim_output=1,
+                                              num_inds=self.num_inds, dim_hidden=self.dim_hidden,
+                                              num_heads=self.num_heads, ln=False, mode="dense")  # 13 features
+        # self.set_transformer2 = SetTransformer(dim_input=self.set_size, num_outputs=1, dim_output=1,
+        #         num_inds=self.num_inds, dim_hidden=self.set_size, num_heads=self.num_heads, ln=False, mode="dense")
         # self.ln4 = torch.nn.Linear(self.dim_output, 1)
         self.ln5 = torch.nn.Linear(self.dim_output, 4)
         self.ln6 = torch.nn.Linear(self.set_size, 1)
+        # self.ln7 = torch.nn.Linear(int(self.set_size/2), 1)
+
     def init_assigner_sampler(self):
         """Initialize assigner and sampler."""
         self.bbox_assigner = None
@@ -209,7 +227,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         if self.with_mask:
             mask_rois = rois[:100]
             mask_results = self._mask_forward(x, mask_rois)
-            outs = outs + (mask_results['mask_pred'], )
+            outs = outs + (mask_results['mask_pred'],)
         return outs
 
     def forward_train(self,
@@ -283,6 +301,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                                                     gt_masks, img_metas)
             losses.update(mask_results['loss_mask'])
         ######## deepsets ######
+        # torch.autograd.set_detect_anomaly(True)
         num_proposals_per_img = tuple(len(res.bboxes) for res in sampling_results)
         rois = bbox2roi([res.bboxes for res in sampling_results])
         feats = bbox_results["last_layer_feats"]
@@ -296,6 +315,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         loss_deepsets['loss_deepsets_total'] = torch.zeros(1, requires_grad=True).cuda(device=device)
         loss_deepsets['giou'] = torch.zeros(1, requires_grad=True).cuda(device=device)
         loss_deepsets['l1'] = torch.zeros(1, requires_grad=True).cuda(device=device)
+        valid_img_num = 0
         for i in range(num_imgs):
             bbox, score = self.bbox_head.get_bboxes(
                 rois[i],
@@ -305,21 +325,29 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 img_metas[i]['scale_factor'],
                 rescale=False,
                 cfg=None)
-            sets, preds, set_labels, set_bboxes, centroids_per_set = self._forward_deepsets(bbox, score, feats[i],
-                                                                             img_shape=img_metas[i]['img_shape'], gt_labels=gt_labels[i],
-                                                                             ds_cfg=ds_cfg, device=device, score_thr=0.05)
-            valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, one_hot_targets, soft_targets, gt_box_per_set = \
-                self._get_target(sets, set_labels, set_bboxes, centroids_per_set, gt_bboxes[i], gt_labels[i], preds, device=device)
+            # bbox, score = bbox.detach(), score.detach()
+            sets, preds, set_labels, set_bboxes, set_scores, centroids_per_set, normalization_data = \
+                self._forward_deepsets(bbox, score, feats[i], img_shape=img_metas[i]['img_shape'],
+                                       gt_labels=gt_labels[i], ds_cfg=ds_cfg, device=device, score_thr=0.05)
+            valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
+            one_hot_targets, soft_targets, gt_box_per_set = \
+                self._get_target(sets, set_labels, set_bboxes, centroids_per_set, normalization_data, gt_bboxes[i],
+                                 gt_labels[i], preds, device=device)
             # loss_deepsets_i = self._loss(valid_preds, valid_ious, one_hot_targets, soft_targets,
             #                                         valid_set_scores, gt_box_per_set, gt_bboxes[i], img_shape=img_metas[i]['img_shape'], device=device)
-            loss_deepsets_i = self._loss(valid_preds, valid_centroids, gt_box_per_set, img_shape=img_metas[i]['img_shape'], device=device,
-                                         lambda_l1=self.l1_weight, lambda_iou=self.giou_weight)
+            loss_deepsets_i = self._loss(valid_preds, valid_centroids, valid_normalization_data, gt_box_per_set,
+                                         img_shape=img_metas[i]['img_shape'], device=device, lambda_l1=self.l1_weight,
+                                         lambda_iou=self.giou_weight)
             if loss_deepsets_i['loss_deepsets_total'] is not None:
                 loss_deepsets['loss_deepsets_total'] += loss_deepsets_i['loss_deepsets_total']
                 loss_deepsets['giou'] += loss_deepsets_i['giou']
                 loss_deepsets['l1'] += loss_deepsets_i['l1']
+                valid_img_num += 1
         for key, value in loss_deepsets.items():
-            loss_deepsets[key] = value/num_imgs
+            if valid_img_num:
+                loss_deepsets[key] = value / valid_img_num
+            else:
+                loss_deepsets[key] = value / num_imgs  # no loss, prevent dividing by zero
         losses.update(loss_deepsets)
 
         ### temp
@@ -363,13 +391,15 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             if torch.distributed.get_rank() == 0 and self.curr_cfg.with_wandb:
                 wandb.log({"Total loss": loss_deepsets["loss_deepsets_total"],
                            "GIOU loss": loss_deepsets["giou"],
-                           "L1 loss": loss_deepsets["l1"]
+                           "L1 loss": loss_deepsets["l1"],
+                           "Preds mean": torch.mean(abs(valid_preds))
                            })
         else:
             if self.curr_cfg.with_wandb:
                 wandb.log({"Total loss": loss_deepsets["loss_deepsets_total"],
                            "GIOU loss": loss_deepsets["giou"],
-                           "L1 loss": loss_deepsets["l1"]
+                           "L1 loss": loss_deepsets["l1"],
+                           "Preds mean": torch.mean(abs(valid_preds))
                            })
         # "max score rate": max_score_rate})
         # "image": wandb.Image(img[0].cpu().permute(1, 2, 0).numpy(),
@@ -593,7 +623,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         det_bboxes = det_bboxes[..., :4]
         batch_index = torch.arange(
             det_bboxes.size(0), device=det_bboxes.device).float().view(
-                -1, 1, 1).expand(det_bboxes.size(0), det_bboxes.size(1), 1)
+            -1, 1, 1).expand(det_bboxes.size(0), det_bboxes.size(1), 1)
         mask_rois = torch.cat([batch_index, det_bboxes], dim=-1)
         mask_rois = mask_rois.view(-1, 5)
         mask_results = self._mask_forward(x, mask_rois)
@@ -634,7 +664,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
 
         batch_index = torch.arange(
             rois.size(0), device=rois.device).float().view(-1, 1, 1).expand(
-                rois.size(0), rois.size(1), 1)
+            rois.size(0), rois.size(1), 1)
 
         rois = torch.cat([batch_index, rois[..., :4]], dim=-1)
         batch_size = rois.shape[0]
@@ -658,19 +688,46 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
 
         return det_bboxes, det_labels
 
+    # def normalize(self, vector):
+    #     return torch.div(vector, torch.max(vector + sys.float_info.epsilon, dim=0)[0])
+
     def normalize(self, vector):
-        return torch.div(vector, torch.max(vector + sys.float_info.epsilon))
+        if vector.size(0) > 1:
+            # vector -= torch.mean(vector, 0).repeat(vector.size(0), 1)
+            vector -= torch.mean(vector, 0)
+            # std = torch.std(vector, 0).repeat(vector.size(0), 1)
+            std = torch.std(vector, 0)
+            vector = torch.div(vector, std + sys.float_info.epsilon)
+        return vector
+
+    def input_preprocessing(self, bboxes, img_shape, device):
+        x1 = bboxes[:, 0].unsqueeze(1) / img_shape[1]
+        x2 = bboxes[:, 2].unsqueeze(1) / img_shape[1]
+        y1 = bboxes[:, 1].unsqueeze(1) / img_shape[0]
+        y2 = bboxes[:, 3].unsqueeze(1) / img_shape[0]
+        width = (x2 - x1)
+        height = (y2 - y1)
+        aspect_ratio = torch.div(width, height + sys.float_info.epsilon)
+        area = width * height
+        # set_area_mean = area/torch.mean(area)
+        # set_area_sum = area/torch.sum(area)
+        # set_aspect_mean = aspect_ratio/torch.mean(aspect_ratio)
+        # set_aspect_sum = aspect_ratio/torch.sum(aspect_ratio)
+        # one_hot_classes = torch.zeros((1, num_classes)).repeat(len(_set), 1).cuda(device=device)
+        # one_hot_classes[:, c] = 1
+        centroids = torch.cat([x1 + width / 2, y1 + height / 2], dim=1).cuda(device=device)
+        return x1, x2, y1, y2, width, height, aspect_ratio, area, centroids
 
     # def set_forward(self, x):
-        # x = F.elu(self.ds1(x))
-        # x = F.elu(self.ds2(x))
-        # x = F.elu(self.ds3(x))
-        # if not self.include_ds4:
-        #     pred = F.elu(self.ds4(x))
-        # else:
-        #     x = F.elu(self.ds4(x))
-        #     pred = self.ds5(x)
-        # return pred
+    # x = F.elu(self.ds1(x))
+    # x = F.elu(self.ds2(x))
+    # x = F.elu(self.ds3(x))
+    # if not self.include_ds4:
+    #     pred = F.elu(self.ds4(x))
+    # else:
+    #     x = F.elu(self.ds4(x))
+    #     pred = self.ds5(x)
+    # return pred
 
     def set_forward2(self, x):
         x = self.bn1(F.elu(self.ln1(x)))
@@ -689,17 +746,27 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         pred = self.ln4(x)
         return pred
 
-    def set_forward4(self, x):
+    def set_forward4(self, x, device):
         # x = F.elu(self.ln1(x))
         x = F.elu(self.set_transformer(x))
+        # x = F.elu(self.ds1(x))
+        # x = self.dropout(x)
         x = self.ln5(x)
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+        if len(x) < self.set_size:
+            # zero padding
+            x = torch.cat([x, torch.zeros((self.set_size - x.shape[0]), x.shape[1]).cuda(device=device)], 0)
+        if len(x) > self.set_size:
+            x = x[:self.set_size]
         pred = self.ln6(x.T)
-        # pred = torch.tanh(pred)
-        pred = torch.sigmoid(pred)
+        # pred = self.ln7(x)
+        # pred = F.elu(self.set_transformer2(x.T)).unsqueeze(1)
+        # pred = torch.sigmoid(pred)
         return pred
 
     def _forward_deepsets(self, multi_bboxes, cls_score, last_layer_feats,
-                mode='train', ds_cfg=None, img_shape=None, gt_labels=None, device=0, score_thr=0.05):
+                          mode='train', ds_cfg=None, img_shape=None, gt_labels=None, device=0, score_thr=0.05):
         """
         Args:
             labels: bbox labels (assigned by comparing to gt)
@@ -711,6 +778,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         set_scores = []
         input_labels = []
         centroids_per_set = []
+        normalization_data = []
         top_c = ds_cfg['top_c']
         max_num = ds_cfg['max_num']
         iou_threshold = ds_cfg['iou_thresh']
@@ -718,12 +786,12 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             classes = torch.unique(gt_labels)
         else:
             # classes = torch.unique(torch.topk(cls_score[:, :-1], top_c, dim=1)[1])  # top_classes_on_set
-            classes = torch.range(0, num_classes-1, dtype=int).cuda(device=device)
+            classes = torch.range(0, num_classes - 1, dtype=int).cuda(device=device)
         zero = torch.zeros(1).cuda(device=device)
         one = torch.ones(1).cuda(device=device)
         for c in classes:  # c in 0 to data length - 1
             sets = []
-            bboxes = multi_bboxes[:, (c) * 4:((c) + 1) * 4]
+            bboxes = multi_bboxes[:, c * 4:(c + 1) * 4]
             scores = cls_score[:, c]
             valid_mask = scores > score_thr
             valid_inds = valid_mask.nonzero(as_tuple=False).squeeze(1)
@@ -732,7 +800,6 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             inds = inds[:max_num]
             bboxes = bboxes[inds]
             feats = last_layer_feats[inds]
-            # feats = last_layer_feats
             ious = bbox_overlaps(bboxes, bboxes)
             is_clustered = torch.ones(ious.shape[0]).cuda(device=device)
             for j, row in enumerate(ious):
@@ -743,85 +810,134 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                     if selected_indices.ndim == 0:
                         selected_indices = selected_indices.unsqueeze(0)
                     sets.append(selected_indices)
-
+            x1_full, x2_full, y1_full, y2_full, width_full, height_full, aspect_ratio_full, area_full, centroids_full = \
+                self.input_preprocessing(bboxes, img_shape, device)
             for s, _set in enumerate(sets):
-                # if mode == 'train' and len(_set) == 1:  # were set includes only one object
-                #     continue
-                x1 = bboxes[sets[s], 0].unsqueeze(1)/img_shape[1]
-                x2 = bboxes[sets[s], 2].unsqueeze(1)/img_shape[1]
-                y1 = bboxes[sets[s], 1].unsqueeze(1)/img_shape[0]
-                y2 = bboxes[sets[s], 3].unsqueeze(1)/img_shape[0]
-                # x1 = bboxes[sets[s], 0].unsqueeze(1)
-                # x2 = bboxes[sets[s], 2].unsqueeze(1)
-                # y1 = bboxes[sets[s], 1].unsqueeze(1)
-                # y2 = bboxes[sets[s], 3].unsqueeze(1)
-                width = (x2 - x1) #/img_shape[1]
-                height = (y2 - y1) #/img_shape[0]
-                aspect_ratio = torch.div(width, height+sys.float_info.epsilon)
-                area = width*height
-                set_area_mean = area/torch.mean(area)
-                set_area_sum = area/torch.sum(area)
-                set_aspect_mean = aspect_ratio/torch.mean(aspect_ratio)
-                set_aspect_sum = aspect_ratio/torch.sum(aspect_ratio)
+                if mode == 'train' and len(_set) == 1:  # were set includes only one object
+                    continue
+                if max(scores[sets[s]]) < 0.2:  # to enhance training
+                    continue
+                # x1 = bboxes[sets[s], 0].unsqueeze(1)/img_shape[1]
+                # x2 = bboxes[sets[s], 2].unsqueeze(1)/img_shape[1]
+                # y1 = bboxes[sets[s], 1].unsqueeze(1)/img_shape[0]
+                # y2 = bboxes[sets[s], 3].unsqueeze(1)/img_shape[0]
+                # width = (x2 - x1)
+                # height = (y2 - y1)
+                # aspect_ratio = torch.div(width, height+sys.float_info.epsilon)
+                # area = width*height
+                # set_area_mean = area/torch.mean(area)
+                # set_area_sum = area/torch.sum(area)
+                # set_aspect_mean = aspect_ratio/torch.mean(aspect_ratio)
+                # set_aspect_sum = aspect_ratio/torch.sum(aspect_ratio)
                 one_hot_classes = torch.zeros((1, num_classes)).repeat(len(_set), 1).cuda(device=device)
                 one_hot_classes[:, c] = 1
-                centroids = torch.cat([x1+width/2, y1+height/2], dim=1).cuda(device=device)
+                # centroids = torch.cat([x1+width/2, y1+height/2], dim=1).cuda(device=device)
+                x1 = x1_full[sets[s]]
+                x2 = x2_full[sets[s]]
+                y1 = y1_full[sets[s]]
+                y2 = y2_full[sets[s]]
+                width = width_full[sets[s]]
+                height = height_full[sets[s]]
+                aspect_ratio = aspect_ratio_full[sets[s]]
+                area = area_full[sets[s]]
+                centroids = centroids_full[sets[s]]
                 set_dist_mean = torch.mean(torch.cdist(centroids, centroids, p=2), 1).unsqueeze(1)
                 set_dist_sum = torch.sum(torch.cdist(centroids, centroids, p=2), 1).unsqueeze(1)
                 set_ious_mean = torch.mean(ious[sets[s]][:, sets[s]], 1).unsqueeze(1)
                 set_ious_sum = torch.sum(ious[sets[s]][:, sets[s]], 1).unsqueeze(1)
                 # zero mean center points
-                x1 -= torch.mean(centroids, 0)[0]
-                x2 -= torch.mean(centroids, 0)[0]
-                y1 -= torch.mean(centroids, 0)[1]
-                y2 -= torch.mean(centroids, 0)[1]
+                # x1 -= torch.mean(centroids, 0)[0]
+                # x2 -= torch.mean(centroids, 0)[0]
+                # y1 -= torch.mean(centroids, 0)[1]
+                # y2 -= torch.mean(centroids, 0)[1]
+                normalization_data_per_set = {
+                    'x1_mean': torch.mean(x1),
+                    'x1_std': torch.std(x1),
+                    'y1_mean': torch.mean(y1),
+                    'y1_std': torch.std(y1),
+                    'x2_mean': torch.mean(x2),
+                    'x2_std': torch.std(x2),
+                    'y2_mean': torch.mean(y2),
+                    'y2_std': torch.std(y2),
+                }
+                # zero mean by coordinate
+                # x1 -= torch.mean(x1)
+                # x2 -= torch.mean(x2)
+                # y1 -= torch.mean(y1)
+                # y2 -= torch.mean(y2)
+
                 # input = torch.cat([x1, y1, x2, y2, feats[sets[s]], width, height, aspect_ratio, area, set_ious_mean,
-                #                    set_ious_sum, set_dist_mean, set_dist_sum, set_area_mean, set_area_sum,
-                #                    set_aspect_mean, set_aspect_sum, one_hot_classes, scores[sets[s]].unsqueeze(1)], dim=1)
-                # input = torch.cat([-x1, -y1, x2, y2, width, height, self.normalize(aspect_ratio), self.normalize(area),
-                #                    self.normalize(set_ious_mean), self.normalize(set_ious_sum),
-                #                    self.normalize(set_dist_mean), self.normalize(set_dist_sum),
-                #                    scores[sets[s]].unsqueeze(1)], dim=1)
-                input = torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area,
-                                   set_ious_mean, set_ious_sum,
-                                   set_dist_mean, set_dist_sum,
-                                   scores[sets[s]].unsqueeze(1)], dim=1)
+                #                    set_ious_sum, set_dist_mean, set_dist_sum, one_hot_classes, scores[sets[s]].unsqueeze(1)], dim=1)
+
+                # input = torch.cat([-x1, -y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
+                #                    set_ious_sum, set_dist_mean, set_dist_sum, scores[sets[s]].unsqueeze(1)], dim=1)
+
+                normalized_part = self.normalize(
+                    torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
+                               set_ious_sum, set_dist_mean, set_dist_sum, scores[sets[s]].unsqueeze(1)], dim=1))
+                # normalized_part = self.normalize(
+                #     torch.cat([x1, y1, x2, y2, scores[sets[s]].unsqueeze(1)], dim=1))
+                input = torch.cat([normalized_part, one_hot_classes], dim=1)
+                # input = normalized_part
+
+
+                # 13 features expanding
+                # expaned_features = self.ln2(torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
+                #                    set_ious_sum, set_dist_mean, set_dist_sum, scores[sets[s]].unsqueeze(1)], dim=1))
+                # input = torch.cat([expaned_features, feats[sets[s]]], dim=1)
+
                 _set_bboxes = bboxes[sets[s]]
-                if len(input) < self.set_size:
-                    # zero padding
-                    input = torch.cat([input, torch.zeros((self.set_size - input.shape[0]),
-                                                          input.shape[1]).cuda(device=device)], 0)
-                    _set_bboxes = torch.cat([_set_bboxes, torch.zeros((self.set_size - _set_bboxes.shape[0]),
-                                                                      _set_bboxes.shape[1]).cuda(device=device)], 0)
-                if len(input) > self.set_size:
-                    _, top_scores_idx = input[:, -1].sort(descending=True)
-                    input = input[top_scores_idx][:self.set_size]
-                    _set_bboxes = _set_bboxes[top_scores_idx][:self.set_size]
-                # randperm = torch.randperm(len(input))
-                # input = input[randperm]
-                # set_bboxes.append(_set_bboxes[randperm])
-                # set_scores.append(_set_scores[randperm])
+                _set_scores = scores[sets[s]].unsqueeze(1)
+                # if len(input) < self.set_size:
+                #     # zero padding
+                #     input = torch.cat([input, torch.zeros((self.set_size - input.shape[0]),
+                #                                           input.shape[1]).cuda(device=device)], 0)
+                #     _set_bboxes = torch.cat([_set_bboxes, torch.zeros((self.set_size - _set_bboxes.shape[0]),
+                #                                                       _set_bboxes.shape[1]).cuda(device=device)], 0)
+                #     _set_scores = torch.cat([_set_scores, torch.zeros((self.set_size - _set_scores.shape[0]),
+                #                                                       _set_scores.shape[1]).cuda(device=device)], 0)
+                # if len(input) > self.set_size:
+                #     # _, top_scores_idx = input[:, -1].sort(descending=True)
+                #     # input = input[top_scores_idx][:self.set_size]
+                #     input = input[:self.set_size]
+                #     _set_bboxes = _set_bboxes[:self.set_size]
+                #     _set_scores = _set_scores[:self.set_size]
+                # if mode == 'train':
+                #     randperm = torch.randperm(len(input))
+                #     input = input[randperm]
+                #     set_bboxes.append(_set_bboxes[randperm])
+                #     set_scores.append(_set_scores[randperm])
+                # else:
+                #     set_bboxes.append(_set_bboxes)
+                #     set_scores.append(_set_scores)
                 set_bboxes.append(_set_bboxes)
+                set_scores.append(_set_scores)
                 inputs.append(input)
                 input_labels.append(c)
+                normalization_data.append(normalization_data_per_set)
                 centroids_per_set.append(torch.mean(centroids, 0))
-                # pred = self.set_forward2(input)
-                if input.shape[0] == 1:
-                    pred = self.set_forward4(input).unsqueeze(0).unsqueeze(1)
-                else:
-                    pred = self.set_forward4(input)
+                # t1 = datetime.datetime.now()
+                # if input.shape[0] == 1:
+                #     pred = self.set_forward4(input, device).unsqueeze(0).unsqueeze(1)
+                # else:
+                pred = self.set_forward4(input, device)
                 preds.append(pred)
-        return inputs, preds, input_labels, set_bboxes, centroids_per_set
+                # print(f'full set {t2 - t1}\n small set {t3 - t2}\n ')
+
+
+
+        return inputs, preds, input_labels, set_bboxes, set_scores, centroids_per_set, normalization_data
 
     def _get_target(self,
-                   sets,
-                   set_labels,
-                   set_bboxes,
-                   centroids_per_set,
-                   gt_bboxes,
-                   gt_labels,
-                   preds,
-                   device=0):
+                    sets,
+                    set_labels,
+                    set_bboxes,
+                    centroids_per_set,
+                    normalization_data,
+                    gt_bboxes,
+                    gt_labels,
+                    preds,
+                    device=0):
         """
         returns deepsets labels.
         a. for each class on each set, find closest gt,
@@ -836,6 +952,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         valid_set_scores = []  # for wandb log
         valid_ious = []  # for error viz
         valid_centroids = []
+        valid_normalization_data = []
         gt_box_per_set = torch.empty((0, 4), dtype=torch.float32).cuda(device=device)
         for j, set in enumerate(sets):
             c = set_labels[j]
@@ -844,11 +961,12 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 # takes boxes of relevant gt
                 class_boxes = torch.index_select(gt_bboxes, 0, gt_class_inds)
                 gt_iou = bbox_overlaps(set_bboxes[j], class_boxes)
-                vals, row_idx = gt_iou.max(0)  # row idx: indices of set elements with max ious with each GT (1, num_gts)
+                vals, row_idx = gt_iou.max(
+                    0)  # row idx: indices of set elements with max ious with each GT (1, num_gts)
                 col_idx = vals.argmax(0)  # col idx: index of GT with highest iou with any set element
                 if torch.max(gt_iou[:, col_idx]) < 0.8:
                     continue
-                soft_targets.append(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx]+sys.float_info.epsilon))
+                soft_targets.append(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx] + sys.float_info.epsilon))
                 trg = torch.zeros(len(set), dtype=torch.int64).cuda(device=device)
                 trg[row_idx[col_idx]] = 1
                 one_hot_targets.append(trg)
@@ -856,13 +974,16 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 valid_set_scores.append(sets[j][:, -1])
                 valid_ious.append(gt_iou[:, col_idx])
                 valid_centroids.append(centroids_per_set[j])
+                valid_normalization_data.append(normalization_data[j])
                 # gt_box_per_set.append(class_boxes[col_idx])
                 valid_preds = torch.cat((valid_preds, preds[j]), 1)
                 gt_box_per_set = torch.cat((gt_box_per_set, class_boxes[col_idx].unsqueeze(0)), 0)
 
-        return valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, one_hot_targets, soft_targets, gt_box_per_set
+        return valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
+               one_hot_targets, soft_targets, gt_box_per_set
 
-    def _loss(self, pred, valid_centroids, gt_box_per_set, img_shape=None, device=0, lambda_iou=2, lambda_l1=5):
+    def _loss(self, pred, valid_centroids, valid_normalization_data, gt_box_per_set, img_shape=None, device=0,
+              lambda_iou=2, lambda_l1=5):
         losses = dict()
         assert pred is not None, "pred is None"
         _l1_loss = torch.zeros(1).cuda(device=device)
@@ -878,24 +999,27 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         # preds_for_loss[:, 1] = torch.min(preds[:, 1], preds[:, 3])
         # preds_for_loss[:, 2] = torch.max(preds[:, 0], preds[:, 2])
         # preds_for_loss[:, 3] = torch.max(preds[:, 1], preds[:, 3])
-
         centroids_per_set = torch.empty((len(valid_centroids), 2)).cuda(device)
+        ndps = torch.empty((len(valid_normalization_data), 8)).cuda(device)
         for i, _set in enumerate(valid_centroids):
             centroids_per_set[i] = valid_centroids[i]
-        pred_for_loss[:, 2] = (centroids_per_set[:, 0] + (pred[:, 2])) * img_shape[1]
-        pred_for_loss[:, 3] = (centroids_per_set[:, 1] + (pred[:, 3])) * img_shape[0]
-        pred_for_loss[:, 0] = (centroids_per_set[:, 0] - (pred[:, 0])) * img_shape[1]
-        pred_for_loss[:, 1] = (centroids_per_set[:, 1] - (pred[:, 1])) * img_shape[0]
-        # pred_for_loss[:, 0] = (centroids_per_set[:, 0] - (pred[:, 0]) + (pred[:, 2])) * img_shape[1]
-        # pred_for_loss[:, 1] = (centroids_per_set[:, 1] - (pred[:, 1]) + (pred[:, 3])) * img_shape[0]
+            ndps[i][0] = valid_normalization_data[i]['x1_mean']
+            ndps[i][1] = valid_normalization_data[i]['x1_std']
+            ndps[i][2] = valid_normalization_data[i]['y1_mean']
+            ndps[i][3] = valid_normalization_data[i]['y1_std']
+            ndps[i][4] = valid_normalization_data[i]['x2_mean']
+            ndps[i][5] = valid_normalization_data[i]['x2_std']
+            ndps[i][6] = valid_normalization_data[i]['y2_mean']
+            ndps[i][7] = valid_normalization_data[i]['y2_std']
         # pred_for_loss[:, 2] = (centroids_per_set[:, 0] + (pred[:, 2])) * img_shape[1]
         # pred_for_loss[:, 3] = (centroids_per_set[:, 1] + (pred[:, 3])) * img_shape[0]
-
-
-        # pred_for_loss[:, 2] = (pred[:, 0] + pred[:, 2]) * img_shape[1]
-        # pred_for_loss[:, 3] = (pred[:, 1] + pred[:, 3]) * img_shape[0]
-        # pred_for_loss[:, 0] = pred[:, 0] * img_shape[1]
-        # pred_for_loss[:, 1] = pred[:, 1] * img_shape[0]
+        # pred_for_loss[:, 0] = (centroids_per_set[:, 0] - (pred[:, 0])) * img_shape[1]
+        # pred_for_loss[:, 1] = (centroids_per_set[:, 1] - (pred[:, 1])) * img_shape[0]
+        pred_for_loss[:, 2] = ((pred[:, 2] * ndps[:, 5]) + ndps[:, 4]) * img_shape[1]
+        pred_for_loss[:, 3] = ((pred[:, 3] * ndps[:, 7]) + ndps[:, 6]) * img_shape[0]
+        pred_for_loss[:, 0] = ((pred[:, 0] * ndps[:, 1]) + ndps[:, 0]) * img_shape[1]
+        pred_for_loss[:, 1] = ((pred[:, 1] * ndps[:, 3]) + ndps[:, 2]) * img_shape[0]
+        # print((pred[:, 2] * ndps[:, 5]), (pred[:, 3] * ndps[:, 7]), (pred[:, 0] * ndps[:, 1]), (pred[:, 1] * ndps[:, 3]))
         _giou_loss = self.loss_giou.forward(pred_for_loss, gt_box_per_set, self.giou_coef)
         _l1_loss = self.loss_l1.forward(pred_for_loss, gt_box_per_set)
         # gt_mean_area = torch.mean(torch.log((gt_box_per_set[:, 2] - gt_box_per_set[:, 0]) * (gt_box_per_set[:, 3] - gt_box_per_set[:, 1])))
@@ -904,12 +1028,13 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         if len(pred) == 0:
             losses['loss_deepsets_total'] = None
         else:
-            losses['loss_deepsets_total'] = lambda_iou*_giou_loss + lambda_l1*_l1_loss/(np.mean(img_shape[0]+img_shape[1]))
+            losses['loss_deepsets_total'] = lambda_iou * _giou_loss + lambda_l1 * _l1_loss / (
+                np.mean(img_shape[0] + img_shape[1]))
             # losses['loss_deepsets_total'] = _giou_loss + _l1_loss
             # losses['loss_deepsets_total'] = _l1_loss
-            # losses['loss_deepsets_total'] = _giou_loss
-            losses['giou'] = lambda_iou*_giou_loss
-            losses['l1'] = lambda_l1*_l1_loss/(np.mean(img_shape[0]+img_shape[1]))
+            # losses['loss_deepsets_total'] = lambda_iou * _giou_loss
+            losses['giou'] = lambda_iou * _giou_loss
+            losses['l1'] = lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1]))
             # losses['l1'] =  _l1_loss
         return losses
 

@@ -331,17 +331,19 @@ def getIouErrorPerObjectWithSetDrawing(img, bboxes, labels, sets, gt_dict, scale
             p = 'miss'
         cv.rectangle(img_to_save, (x1, y1), (x2, y2), color, 1)  # Draw Rectangle with the coordinates
         # write class labels
-        cv.putText(img_to_save,  f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]:.2f}', (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0),
+        cv.putText(img_to_save,  f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]}',
+                   (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0),
                    thickness=3)  # stroke
-        cv.putText(img_to_save, f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]:.2f}', (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255),
+        cv.putText(img_to_save, f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]}',
+                   (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255),
                    thickness=1)
 
-        plt.imsave(f'{out_dir}/i{img_id}_g{j}_{p}_{current_error.item():.2f}.png', img_to_save)
+        plt.imsave(f'{out_dir}/i{img_id}_g{j}_{p}_{int(bboxes[inds[j]][5])}_{current_error.item():.2f}.png', img_to_save)
         # save bboxes as csv:
-        df1 = pd.DataFrame(bboxes[:, :-2].cpu().numpy(), columns=['x1', 'y1', 'x2', 'y2', 'score'])
-        df2 = pd.DataFrame([classes_names[int(x.item())] for x in labels], columns=['class'])
-        bboxes_df = pd.concat([df1, df2], 1)
-        bboxes_df.to_csv(f'results/topk_bboxes_csv/bboxes_{img_id}.csv')
+        # df1 = pd.DataFrame(bboxes[:, :-2].cpu().numpy(), columns=['x1', 'y1', 'x2', 'y2', 'score'])
+        # df2 = pd.DataFrame([classes_names[int(x.item())] for x in labels], columns=['class'])
+        # bboxes_df = pd.concat([df1, df2], 1)
+        # bboxes_df.to_csv(f'results/topk_bboxes_csv/bboxes_{img_id}.csv')
 
     return img, error
 

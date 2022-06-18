@@ -88,6 +88,10 @@ def parse_args():
     parser.add_argument('--l1_weight', type=int, default=None)
     parser.add_argument('--giou_weight', type=int, default=None)
     parser.add_argument('--giou_coef', type=float, default=None)
+    parser.add_argument('--set_size', type=int, default=None)
+    parser.add_argument('--dim_hidden', type=int, default=None)
+    parser.add_argument('--num_inds', type=int, default=None)
+    parser.add_argument('--num_heads', type=int, default=None)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -160,16 +164,24 @@ def main():
         cfg.optimizer.weight_decay = args.wd
     if args.bs is not None:
         cfg.data.samples_per_gpu = args.bs
+    if args.set_size is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.set_size = args.set_size
     if args.dim_input is not None:
         cfg.model.train_cfg.rcnn.deepsets_config.dim_input = args.dim_input
-    if args.dim_output is not None:
-        cfg.model.train_cfg.rcnn.deepsets_config.dim_output = args.dim_output
     if args.l1_weight is not None:
         cfg.model.train_cfg.rcnn.deepsets_config.l1_weight = args.l1_weight
     if args.giou_weight is not None:
         cfg.model.train_cfg.rcnn.deepsets_config.giou_weight = args.giou_weight
     if args.giou_coef is not None:
         cfg.model.train_cfg.rcnn.deepsets_config.giou_coef = args.giou_coef
+    if args.dim_hidden is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.dim_hidden = args.dim_hidden
+    if args.dim_output is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.dim_output = args.dim_output
+    if args.num_inds is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.num_inds = args.num_inds
+    if args.num_heads is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.num_heads = args.num_heads
 
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
@@ -248,8 +260,8 @@ def main():
     # for v in model.roi_head.ds5.parameters():
     #     v.requires_grad = True
 
-    for v in model.roi_head.ln1.parameters():
-        v.requires_grad = True
+    # for v in model.roi_head.ln1.parameters():
+    #     v.requires_grad = True
     # for v in model.roi_head.ln2.parameters():
     #     v.requires_grad = True
     # for v in model.roi_head.ln3.parameters():
@@ -260,6 +272,10 @@ def main():
         v.requires_grad = True
     for v in model.roi_head.ln6.parameters():
         v.requires_grad = True
+    # for v in model.roi_head.ln7.parameters():
+    #     v.requires_grad = True
+    # for v in model.roi_head.dropout.parameters():
+    #     v.requires_grad = True
     # for v in model.roi_head.bn1.parameters():
     #     v.requires_grad = True
     # for v in model.roi_head.bn2.parameters():
@@ -275,6 +291,8 @@ def main():
 
     for v in model.roi_head.set_transformer.parameters():
         v.requires_grad = True
+    # for v in model.roi_head.set_transformer2.parameters():
+    #     v.requires_grad = True
 
     train_detector(
         model,

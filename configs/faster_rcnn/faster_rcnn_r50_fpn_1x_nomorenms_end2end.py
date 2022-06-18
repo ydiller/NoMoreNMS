@@ -76,8 +76,8 @@ model = dict(
                 target_stds=[0.1, 0.1, 0.2, 0.2]),
             reg_class_agnostic=False,
             loss_cls=dict(
-                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=0.0),
-            loss_bbox=dict(type='L1Loss', loss_weight=0.0))),
+                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=1.0))),
         # deepsets_head=dict(
         #         type='DeepsetsHead',
         #         loss_mse=dict(
@@ -184,7 +184,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=4,
+    samples_per_gpu=1,
     workers_per_gpu=0,
     train=dict(
         type=dataset_type,
@@ -211,7 +211,7 @@ evaluation = dict(interval=500, metric='bbox', by_epoch=False)  # , save_best='a
 # optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.0000001)  # bbox prediction l1. mse
 # optimizer = dict(type='Adam', lr=0.00001, weight_decay=0.000001)  # bbox prediction giou, map 42
 # optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.001)  # bbox prediction giou
-optimizer = dict(type='Adam', lr=0.001, weight_decay=0.00001)  # bbox prediction giou with normalization
+optimizer = dict(type='Adam', lr=0.0000000001, weight_decay=0.00001)  # bbox prediction giou with normalization
 optimizer_config = dict(grad_clip=None)
 # learning policy
 # lr_config = dict(

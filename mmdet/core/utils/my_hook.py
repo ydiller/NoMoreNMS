@@ -1,9 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
 import logging
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import numpy as np
 from collections import defaultdict
 from itertools import chain
-
 from torch.nn.utils import clip_grad
 
 from mmcv.utils import TORCH_VERSION, _BatchNorm, digit_version
@@ -49,12 +51,43 @@ class MyHook(Hook):
         if len(params) > 0:
             return clip_grad.clip_grad_norm_(params, **self.grad_clip)
 
+    def plot_grad_flow(self, named_parameters):
+        '''Plots the gradients flowing through different layers in the net during training.
+        Can be used for checking for possible gradient vanishing / exploding problems.
+
+        Usage: Plug this function in Trainer class after loss.backwards() as
+        "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+        ave_grads = []
+        max_grads = []
+        layers = []
+        for n, p in named_parameters:
+            if (p.requires_grad) and ("bias" not in n):
+                layers.append(n)
+                ave_grads.append(p.grad.abs().mean().cpu())
+                max_grads.append(p.grad.abs().max().cpu())
+        plt.figure(figsize=(10, 10))
+        plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
+        plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
+        plt.hlines(0, 0, len(ave_grads) + 1, lw=2, color="k")
+        plt.xticks(range(0, len(ave_grads), 1), layers, rotation="vertical")
+        plt.xlim(left=0, right=len(ave_grads))
+        plt.ylim(bottom=-0.001, top=0.02)  # zoom in on the lower gradient regions
+        plt.xlabel("Layers")
+        plt.ylabel("average gradient")
+        plt.title("Gradient flow")
+        plt.grid(True)
+        plt.legend([Line2D([0], [0], color="c", lw=4),
+                    Line2D([0], [0], color="b", lw=4),
+                    Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+        plt.savefig('results/grad_flow.png', dpi=100)
+
     def after_train_iter(self, runner):
         runner.optimizer.zero_grad()
         if self.detect_anomalous_params:
             self.detect_anomalous_parameters(runner.outputs['loss'], runner)
         if runner.outputs['loss']:
             runner.outputs['loss'].backward()
+            # self.plot_grad_flow(runner.model.named_parameters())
         else:
             print('no loss')
         if self.grad_clip is not None:

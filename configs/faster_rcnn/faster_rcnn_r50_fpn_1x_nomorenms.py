@@ -13,8 +13,8 @@ deepsets_cfg = dict(
                 top_c=3,
                 max_num=512,
                 iou_thresh=0.5,
-                indim=13+80,  # 1117
-                dim_input=13+80,
+                indim=13,  # 1117
+                dim_input=13,
                 dim_output=16,
                 dim_hidden=16,
                 num_inds=16,
@@ -188,7 +188,7 @@ data = dict(
     workers_per_gpu=0,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_train2017.json',  # 50k, 10k, 5k, 2k, 500
+        ann_file=data_root + 'annotations/instances_train2017_10k.json',  # 50k, 10k, 5k, 2k, 500
         img_prefix=data_root + 'images/train2017/',
         pipeline=train_pipeline),
     val=dict(
@@ -203,7 +203,7 @@ data = dict(
         pipeline=test_pipeline,
         samples_per_gpu=6))
 
-evaluation = dict(interval=500, metric='bbox', by_epoch=False)  # , save_best='auto'
+evaluation = dict(interval=1, metric='bbox', by_epoch=True)  # , save_best='auto'
 # evaluation = dict(interval=1, metric='bbox')
 
 # optimizer
@@ -228,10 +228,10 @@ lr_config = dict(
     warmup_ratio=0.001,
     # step=[1, 3, 5, 8],
     # gamma=0.1
-    step=20000,
+    step=40000,
     gamma=0.5)
 # runner = dict(type='EpochBasedRunner', max_epochs=12)
-runner = dict(type='MyRunner', max_epochs=24)
+runner = dict(type='MyRunner', max_epochs=1)
 checkpoint_config = dict(interval=1)
 # yapf:disable
 log_config = dict(

@@ -166,6 +166,17 @@ class MyRunner(BaseRunner):
             self.call_hook('before_train_iter')
             self.run_iter(data_batch, train_mode=True, **kwargs)
             self.call_hook('after_train_iter')
+            ####
+            # counter= self.model.module.roi_head.set_statistics["num_imgs"]
+            # print(f'set mean num: {self.model.module.roi_head.set_statistics["sets"]/counter} \n'
+            #       f'valid set mean num:{self.model.module.roi_head.set_statistics["valid_sets"]/counter} \n'
+            #       f'gt mean num:{self.model.module.roi_head.set_statistics["gt_num"] / counter} \n'
+            #       f'double gt mean num:{self.model.module.roi_head.set_statistics["double_gt"] / counter} \n')
+            # if self.with_wandb:
+            #     wandb.log({"set mean num": self.model.module.roi_head.set_statistics["sets"]/counter,
+            #                "valid set mean num": self.model.module.roi_head.set_statistics["valid_sets"]/counter,
+            #                "gt mean num": self.model.module.roi_head.set_statistics["gt_num"] / counter})
+            ###
             self._iter += 1
             if torch.distributed.is_initialized():
                 if torch.distributed.get_rank() == 0:

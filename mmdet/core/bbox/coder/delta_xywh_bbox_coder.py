@@ -160,6 +160,10 @@ def bbox2delta(proposals, gt, means=(0., 0., 0., 0.), stds=(1., 1., 1., 1.)):
     return deltas
 
 
+def register_grad(grad_input):
+    assert all(t is None or torch.all(~torch.isnan(t)) for t in
+               grad_input), f" grad_input={grad_input}"
+
 @mmcv.jit(coderize=True)
 def delta2bbox(rois,
                deltas,
@@ -257,6 +261,8 @@ def delta2bbox(rois,
         bboxes[..., 0::2].clamp_(min=0, max=max_shape[1])
         bboxes[..., 1::2].clamp_(min=0, max=max_shape[0])
     bboxes = bboxes.reshape(num_bboxes, -1)
+    # if bboxes.requires_grad:
+    #     bboxes.register_hook(register_grad)
     return bboxes
 
 

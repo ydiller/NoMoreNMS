@@ -65,7 +65,10 @@ class EvalHook(BaseEvalHook):
                     wandb.log({"mAP": key_score['bbox_mAP']})
         else:  # single gpu
             if runner.with_wandb:
-                wandb.log({"mAP": key_score['bbox_mAP']})
+                if self.save_best:
+                    wandb.log({"mAP": key_score})
+                else:
+                    wandb.log({"mAP": key_score['bbox_mAP']})
 
     def evaluate(self, runner, results):
         """Evaluate the results.

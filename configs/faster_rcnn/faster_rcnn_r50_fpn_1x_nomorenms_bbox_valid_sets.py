@@ -13,9 +13,9 @@ deepsets_cfg = dict(
                 top_c=3,
                 max_num=512,
                 iou_thresh=0.5,
-                indim=11,  # 1117
-                dim_input=11,
-                dim_output=4,
+                indim=13,  # 1117
+                dim_input=13,
+                dim_output=5,
                 dim_hidden=16,
                 num_inds=16,
                 num_heads=4,
@@ -58,7 +58,7 @@ model = dict(
             type='CrossEntropyLoss', use_sigmoid=True, loss_weight=0.0),
         loss_bbox=dict(type='L1Loss', loss_weight=0.0)),
     roi_head=dict(
-        type='DeepsetsRoIHeadBbox',
+        type='DeepsetsRoIHeadBboxValidSets',
         bbox_roi_extractor=dict(
             type='SingleRoIExtractor',
             roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
@@ -76,8 +76,8 @@ model = dict(
                 target_stds=[0.1, 0.1, 0.2, 0.2]),
             reg_class_agnostic=False,
             loss_cls=dict(
-                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=0.1),
-            loss_bbox=dict(type='L1Loss', loss_weight=0.1))),
+                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=0.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=0.0))),
         # deepsets_head=dict(
         #         type='DeepsetsHead',
         #         loss_mse=dict(
@@ -198,12 +198,12 @@ data = dict(
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_val2017.json',
+        ann_file=data_root + 'annotations/instances_val2017_100.json',
         img_prefix=data_root + 'images/val2017/',
         pipeline=test_pipeline,
         samples_per_gpu=6))
 
-evaluation = dict(interval=500, metric='bbox', by_epoch=False)  # , save_best='auto'
+evaluation = dict(interval=500, metric='bbox', by_epoch=False, save_best='auto')
 # evaluation = dict(interval=1, metric='bbox')
 
 # optimizer
@@ -211,7 +211,7 @@ evaluation = dict(interval=500, metric='bbox', by_epoch=False)  # , save_best='a
 # optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.0000001)  # bbox prediction l1. mse
 # optimizer = dict(type='Adam', lr=0.00001, weight_decay=0.000001)  # bbox prediction giou, map 42
 # optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.001)  # bbox prediction giou
-optimizer = dict(type='Adam', lr=0.00005, weight_decay=0.001)  # bbox prediction giou with normalization
+optimizer = dict(type='Adam', lr=0.001, weight_decay=0.00001)  # bbox prediction giou with normalization
 optimizer_config = dict(grad_clip=None)
 # learning policy
 # lr_config = dict(

@@ -106,7 +106,7 @@ class GIOUuLoss():
 
 
 @HEADS.register_module()
-class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
+class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
     """Simplest base roi head including one bbox head and one mask head."""
 
     def __init__(self,
@@ -129,8 +129,9 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                      loss_weight=1.0),
                  loss_ce=dict(
                      type='CrossEntropyLoss',
+                     use_sigmoid=True,
                      loss_weight=1.0)):
-        super(DeepsetsRoIHeadBbox, self).__init__(
+        super(DeepsetsRoIHeadBboxValidSets, self).__init__(
             bbox_roi_extractor=bbox_roi_extractor,
             bbox_head=bbox_head,
             mask_roi_extractor=mask_roi_extractor,
@@ -332,6 +333,8 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         loss_deepsets['loss_deepsets_total'] = torch.zeros(1, requires_grad=True).cuda(device=device)
         loss_deepsets['giou'] = torch.zeros(1, requires_grad=True).cuda(device=device)
         loss_deepsets['l1'] = torch.zeros(1, requires_grad=True).cuda(device=device)
+        loss_deepsets['bce'] = torch.zeros(1, requires_grad=True).cuda(device=device)
+        loss_deepsets['valid_set_acc'] = torch.zeros(1, requires_grad=True).cuda(device=device)
         valid_img_num = 0
         for i in range(num_imgs):
             bbox, score = self.bbox_head.get_bboxes(
@@ -347,23 +350,20 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 self._forward_deepsets(bbox, score, feats[i], img_shape=img_metas[i]['img_shape'],
                                        gt_labels=gt_labels[i], ds_cfg=ds_cfg, device=device, score_thr=0.05)
             valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
-            one_hot_targets, soft_targets, gt_box_per_set, gtm = \
+            one_hot_targets, soft_targets, gt_box_per_set, gt_valid_sets = \
                 self._get_target(sets, set_labels, set_bboxes, centroids_per_set, normalization_data, gt_bboxes[i],
                                  gt_labels[i], preds, device=device)
-            self.set_statistics['sets'] += len(sets)
-            self.set_statistics['valid_sets'] += valid_preds.shape[1]
-            self.set_statistics['gt_num'] += len(gt_bboxes[i])
-            self.set_statistics['num_imgs'] += 1
-            self.set_statistics['double_gt'] += torch.where(torch.sum(gtm, 0) > 1)[0].shape[0]
             # loss_deepsets_i = self._loss(valid_preds, valid_ious, one_hot_targets, soft_targets,
             #                                         valid_set_scores, gt_box_per_set, gt_bboxes[i], img_shape=img_metas[i]['img_shape'], device=device)
-            loss_deepsets_i = self._loss(valid_preds, valid_centroids, valid_normalization_data, gt_box_per_set,
+            loss_deepsets_i = self._loss(valid_preds, valid_centroids, valid_normalization_data, gt_box_per_set, gt_valid_sets,
                                          img_shape=img_metas[i]['img_shape'], device=device, lambda_l1=self.l1_weight,
                                          lambda_iou=self.giou_weight)
             if loss_deepsets_i['loss_deepsets_total'] is not None:
                 loss_deepsets['loss_deepsets_total'] += loss_deepsets_i['loss_deepsets_total']
                 loss_deepsets['giou'] += loss_deepsets_i['giou']
                 loss_deepsets['l1'] += loss_deepsets_i['l1']
+                loss_deepsets['bce'] += loss_deepsets_i['bce']
+                loss_deepsets['valid_set_acc'] += loss_deepsets_i['valid_set_acc']
                 valid_img_num += 1
             # wandb bounding box
             # pred_boxes_log = []
@@ -448,6 +448,8 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 wandb.log({"Total loss": loss_deepsets["loss_deepsets_total"],
                            "GIOU loss": loss_deepsets["giou"],
                            "L1 loss": loss_deepsets["l1"],
+                           "BCE loss": loss_deepsets["bce"],
+                           "Valid Set Acc": loss_deepsets["valid_set_acc"],
                            "Preds mean": torch.mean(abs(valid_preds))})
         # "max score rate": max_score_rate})
 
@@ -588,7 +590,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         """
         assert self.with_bbox, 'Bbox head must be implemented.'
 
-        det_bboxes, det_labels, sets = self.simple_test_deepsets_bbox(
+        det_bboxes, det_labels, sets = self.simple_test_deepsets_bbox_valid_sets(
             x, img_metas, proposal_list, self.test_cfg, rescale=rescale)
 
         bbox_results = [
@@ -1022,7 +1024,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         one_hot_targets = []
         soft_targets = []
         # valid_preds = []
-        valid_preds = torch.empty((4, 0), dtype=torch.float32).cuda(device=device)
+        valid_preds = torch.empty((5, 0), dtype=torch.float32).cuda(device=device)
         non_valid_set_bboxes = []
         non_valid_set_scores = []
         valid_set_bboxes = []  # for wandb log
@@ -1031,7 +1033,7 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         valid_centroids = []
         valid_normalization_data = []
         gt_box_per_set = torch.empty((0, 4), dtype=torch.float32).cuda(device=device)
-        gtm = torch.zeros((len(sets), len(gt_bboxes))).cuda(device=device)
+        gt_valid_sets = torch.zeros(len(sets), dtype=torch.int64).cuda(device=device)
         for j, set in enumerate(sets):
             c = set_labels[j]
             if len(set) > 0 and c in gt_labels:
@@ -1043,9 +1045,9 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                     0)  # row idx: indices of set elements with max ious with each GT (1, num_gts)
                 col_idx = vals.argmax(0)  # col idx: index of GT with highest iou with any set element
                 if torch.max(gt_iou[:, col_idx]) < 0.5:
-                    # non_valid_set_bboxes.append(set_bboxes[j])
-                    # non_valid_set_scores.append(sets[j][:, -1])
-                    continue
+                    gt_valid_sets[j] = 0
+                else:
+                    gt_valid_sets[j] = 1
                 soft_targets.append(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx] + sys.float_info.epsilon))
                 trg = torch.zeros(len(set), dtype=torch.int64).cuda(device=device)
                 trg[row_idx[col_idx]] = 1
@@ -1060,28 +1062,18 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 gt_box_per_set = torch.cat((gt_box_per_set, class_boxes[col_idx].unsqueeze(0)), 0)
                 if gt_class_inds.ndim==0:
                     gt_class_inds = gt_class_inds.unsqueeze(0)
-                gtm[j, gt_class_inds[col_idx]] += 1  # add one to matched gt
 
         return valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
-               one_hot_targets, soft_targets, gt_box_per_set, gtm
+               one_hot_targets, soft_targets, gt_box_per_set, gt_valid_sets
 
-    def _loss(self, pred, valid_centroids, valid_normalization_data, gt_box_per_set, img_shape=None, device=0,
+    def _loss(self, pred, valid_centroids, valid_normalization_data, gt_box_per_set, gt_valid_sets, img_shape=None, device=0,
               lambda_iou=2, lambda_l1=5):
         losses = dict()
         assert pred is not None, "pred is None"
         _l1_loss = torch.zeros(1).cuda(device=device)
         _giou_loss = torch.zeros(1).cuda(device=device)
-        # gt_normalized = torch.empty_like(gt_box_per_set)
-        # gt_normalized[:, 0] = gt_box_per_set[:, 0] / img_shape[1]
-        # gt_normalized[:, 1] = gt_box_per_set[:, 1] / img_shape[0]
-        # gt_normalized[:, 2] = gt_box_per_set[:, 2] / img_shape[1]
-        # gt_normalized[:, 3] = gt_box_per_set[:, 3] / img_shape[0]
         pred = pred.T
         pred_for_loss = torch.empty_like(pred)
-        # preds_for_loss[:, 0] = torch.min(preds[:, 0], preds[:, 2])
-        # preds_for_loss[:, 1] = torch.min(preds[:, 1], preds[:, 3])
-        # preds_for_loss[:, 2] = torch.max(preds[:, 0], preds[:, 2])
-        # preds_for_loss[:, 3] = torch.max(preds[:, 1], preds[:, 3])
         centroids_per_set = torch.empty((len(valid_centroids), 2)).cuda(device)
         ndps = torch.empty((len(valid_normalization_data), 9)).cuda(device)
         for i, _set in enumerate(valid_centroids):
@@ -1095,79 +1087,27 @@ class DeepsetsRoIHeadBbox(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
             ndps[i][6] = valid_normalization_data[i]['y2_mean']
             ndps[i][7] = valid_normalization_data[i]['y2_std']
             ndps[i][8] = valid_normalization_data[i]['set_size']
-        # pred_for_loss[:, 2] = (centroids_per_set[:, 0] + (pred[:, 2])) * img_shape[1]
-        # pred_for_loss[:, 3] = (centroids_per_set[:, 1] + (pred[:, 3])) * img_shape[0]
-        # pred_for_loss[:, 0] = (centroids_per_set[:, 0] - (pred[:, 0])) * img_shape[1]
-        # pred_for_loss[:, 1] = (centroids_per_set[:, 1] - (pred[:, 1])) * img_shape[0]
 
         pred_for_loss[:, 2] = ((pred[:, 2] * ndps[:, 5]) + ndps[:, 4]) * img_shape[1]
         pred_for_loss[:, 3] = ((pred[:, 3] * ndps[:, 7]) + ndps[:, 6]) * img_shape[0]
         pred_for_loss[:, 0] = ((pred[:, 0] * ndps[:, 1]) + ndps[:, 0]) * img_shape[1]
         pred_for_loss[:, 1] = ((pred[:, 1] * ndps[:, 3]) + ndps[:, 2]) * img_shape[0]
 
-        # pred_for_loss[:, 2] = ((pred[:, 2] * 0.4) + ndps[:, 4]) * img_shape[1]
-        # pred_for_loss[:, 3] = ((pred[:, 3] * 0.4) + ndps[:, 6]) * img_shape[0]
-        # pred_for_loss[:, 0] = ((pred[:, 0] * 0.6) + ndps[:, 0]) * img_shape[1]
-        # pred_for_loss[:, 1] = ((pred[:, 1] * 0.6) + ndps[:, 2]) * img_shape[0]
+        _giou_loss = self.loss_giou.forward(pred_for_loss[gt_valid_sets>0, :4], gt_box_per_set, self.giou_coef)
+        _l1_loss = self.loss_l1.forward(pred_for_loss[gt_valid_sets>0, :4], gt_box_per_set)
+        _ce_loss = self.loss_ce.forward(pred[:, 4], gt_valid_sets)
 
-        # pred_for_loss[:, 2] = (pred[:, 2] + ndps[:, 4]) * img_shape[1]
-        # pred_for_loss[:, 3] = (pred[:, 3] + ndps[:, 6]) * img_shape[0]
-        # pred_for_loss[:, 0] = (pred[:, 0] + ndps[:, 0]) * img_shape[1]
-        # pred_for_loss[:, 1] = (pred[:, 1] + ndps[:, 2]) * img_shape[0]
-        # print(pred[:, 2].detach().cpu(), pred[:, 3].detach().cpu(), pred[:, 0].detach().cpu(), pred[:, 1].detach().cpu())
-        _giou_loss = self.loss_giou.forward(pred_for_loss, gt_box_per_set, self.giou_coef)
-        _l1_loss = self.loss_l1.forward(pred_for_loss, gt_box_per_set)
-        # gt_mean_area = torch.mean(torch.log((gt_box_per_set[:, 2] - gt_box_per_set[:, 0]) * (gt_box_per_set[:, 3] - gt_box_per_set[:, 1])))
-        # if _giou_loss < 0:
-        #     _giou_loss = 1
         if len(pred) == 0:
             losses['loss_deepsets_total'] = None
         else:
-            losses['loss_deepsets_total'] = lambda_iou * _giou_loss + lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1]))
-            # losses['loss_deepsets_total'] = _giou_loss + _l1_loss
-            # losses['loss_deepsets_total'] = _l1_loss
-            # losses['loss_deepsets_total'] = lambda_iou * _giou_loss + 2*(torch.mean(ndps[:, 1]) + torch.mean(ndps[:, 3]) \
-            #                                 + torch.mean(ndps[:, 5]) + torch.mean(ndps[:, 7]))
+            losses['loss_deepsets_total'] = lambda_iou * _giou_loss \
+                                            + lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1])) \
+                                            + 1 * _ce_loss
             losses['giou'] = lambda_iou * _giou_loss
             losses['l1'] = lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1]))
             losses['std'] = 2*(torch.mean(ndps[:, 1]) + torch.mean(ndps[:, 3]) \
-                        + torch.mean(ndps[:, 5]) + torch.mean(ndps[:, 7]))
-            # losses['l1'] =  _l1_loss
+                            + torch.mean(ndps[:, 5]) + torch.mean(ndps[:, 7]))
+            losses['bce'] = _ce_loss
+            losses['valid_set_acc'] = torch.sum(torch.eq(torch.sigmoid(pred[:, 4])>0.5, gt_valid_sets))/float(len(gt_valid_sets))
         return losses
 
-    def _old_loss(self, preds, valid_ious, gt_box_per_set, img_shape=None, device=0):
-        losses = dict()
-        c = sys.float_info.epsilon
-        skipped = 0
-        if preds is not None:
-            _mse_loss = torch.zeros(1).cuda(device=device)
-            _ce_loss = torch.zeros(1).cuda(device=device)
-            _soft_ce = torch.zeros(1).cuda(device=device)
-            _error = torch.zeros(1).cuda(device=device)
-            _ds_acc = torch.zeros(1).cuda(device=device)
-            iou_error = torch.zeros(1).cuda(device=device)
-            _ds_pred_on_max = torch.zeros(1).cuda(device=device)
-            for i, pred in enumerate(preds):
-                # gt_box_per_set[i][0] = gt_box_per_set[i][0] / img_shape[1]
-                # gt_box_per_set[i][1] = gt_box_per_set[i][1] / img_shape[0]
-                # gt_box_per_set[i][2] = gt_box_per_set[i][2] / img_shape[1]
-                # gt_box_per_set[i][3] = gt_box_per_set[i][3] / img_shape[0]
-                pred = pred.T
-                pred_for_loss = torch.empty_like(pred)
-                pred_for_loss[:, 2] = (pred[:, 0] + pred[:, 2]) * img_shape[1]
-                pred_for_loss[:, 3] = (pred[:, 1] + pred[:, 3]) * img_shape[0]
-                pred_for_loss[:, 0] = pred[:, 0] * img_shape[1]
-                pred_for_loss[:, 1] = pred[:, 1] * img_shape[0]
-                if (pred_for_loss[:, 2] - pred_for_loss[:, 0]) < 0 or (pred_for_loss[:, 3] - pred_for_loss[:, 1]) < 0:
-                    continue
-                _ce_loss += self.loss_giou.forward(pred_for_loss, gt_box_per_set[i].unsqueeze(0))
-                # _ce_loss += self.loss_l1(pred.squeeze(), gt_box_per_set[i])
-                c += 1
-            _ce_loss /= c
-        if len(preds) == 0:
-            losses['loss_deepsets_ce'] = None
-
-        else:
-            losses['loss_deepsets_ce'] = _ce_loss
-            # losses['loss_deepsets_mse'] = _mse_loss
-        return losses

@@ -225,7 +225,8 @@ def main():
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
-        val_dataset.pipeline = cfg.data.train.pipeline
+        val_dataset.pipeline = cfg.data.train.pipeline  # coco
+        # val_dataset.pipeline = cfg.data.train.dataset.pipeline  # pascalvoc
         datasets.append(build_dataset(val_dataset))
     if cfg.checkpoint_config is not None:
         # save mmdet version, config file content and class names in
@@ -272,8 +273,8 @@ def main():
         v.requires_grad = True
     for v in model.roi_head.ln6.parameters():
         v.requires_grad = True
-    # for v in model.roi_head.ln7.parameters():
-    #     v.requires_grad = True
+    for v in model.roi_head.ln7.parameters():
+        v.requires_grad = True
     # for v in model.roi_head.dropout.parameters():
     #     v.requires_grad = True
     # for v in model.roi_head.bn1.parameters():
@@ -291,8 +292,8 @@ def main():
 
     for v in model.roi_head.set_transformer.parameters():
         v.requires_grad = True
-    # for v in model.roi_head.set_transformer2.parameters():
-    #     v.requires_grad = True
+    for v in model.roi_head.set_transformer2.parameters():
+        v.requires_grad = True
 
     train_detector(
         model,

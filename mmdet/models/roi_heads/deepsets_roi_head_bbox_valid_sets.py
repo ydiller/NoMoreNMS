@@ -130,7 +130,9 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                  loss_ce=dict(
                      type='CrossEntropyLoss',
                      use_sigmoid=True,
-                     loss_weight=1.0)):
+                     loss_weight=1.0),
+                 loss_ap=dict(
+                     type='APLoss')):
         super(DeepsetsRoIHeadBboxValidSets, self).__init__(
             bbox_roi_extractor=bbox_roi_extractor,
             bbox_head=bbox_head,
@@ -146,6 +148,7 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         self.loss_mse = build_loss(loss_mse)
         self.loss_ce = build_loss(loss_ce)
         self.loss_l1 = build_loss(loss_l1)
+        self.loss_ap = build_loss(loss_ap)
         self.loss_giou = GIOUuLoss()
         self.set_statistics = {
             "sets": 0,
@@ -196,12 +199,12 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         self.set_transformer = SetTransformer(dim_input=self.dim_input, num_outputs=self.dim_output, dim_output=1,
                                               num_inds=self.num_inds, dim_hidden=self.dim_hidden,
                                               num_heads=self.num_heads, ln=False, mode="dense")  # 13 features
-        # self.set_transformer2 = SetTransformer(dim_input=self.set_size, num_outputs=1, dim_output=1,
-        #         num_inds=self.num_inds, dim_hidden=self.set_size, num_heads=self.num_heads, ln=False, mode="dense")
+        self.set_transformer2 = SetTransformer(dim_input=5, num_outputs=1, dim_output=1,
+                num_inds=self.num_inds, dim_hidden=5, num_heads=self.num_heads, ln=False, mode="dense")
         # self.ln4 = torch.nn.Linear(self.dim_output, 1)
         self.ln5 = torch.nn.Linear(self.dim_output, 4)
         self.ln6 = torch.nn.Linear(self.set_size, 1)
-        # self.ln7 = torch.nn.Linear(int(self.set_size/2), 1)
+        self.ln7 = torch.nn.Linear(5, 1)
 
     def init_assigner_sampler(self):
         """Initialize assigner and sampler."""
@@ -346,18 +349,16 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 rescale=False,
                 cfg=None)
             # bbox, score = bbox.detach(), score.detach()
-            sets, preds, set_labels, set_bboxes, set_scores, centroids_per_set, normalization_data = \
+            sets, preds, predicted_scores, set_labels, set_bboxes, set_scores, centroids_per_set, normalization_data = \
                 self._forward_deepsets(bbox, score, feats[i], img_shape=img_metas[i]['img_shape'],
                                        gt_labels=gt_labels[i], ds_cfg=ds_cfg, device=device, score_thr=0.05)
             valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
-            one_hot_targets, soft_targets, gt_box_per_set, gt_valid_sets = \
+            score_target, gt_box_per_set, gt_valid_sets = \
                 self._get_target(sets, set_labels, set_bboxes, centroids_per_set, normalization_data, gt_bboxes[i],
                                  gt_labels[i], preds, device=device)
-            # loss_deepsets_i = self._loss(valid_preds, valid_ious, one_hot_targets, soft_targets,
-            #                                         valid_set_scores, gt_box_per_set, gt_bboxes[i], img_shape=img_metas[i]['img_shape'], device=device)
-            loss_deepsets_i = self._loss(valid_preds, valid_centroids, valid_normalization_data, gt_box_per_set, gt_valid_sets,
-                                         img_shape=img_metas[i]['img_shape'], device=device, lambda_l1=self.l1_weight,
-                                         lambda_iou=self.giou_weight)
+            loss_deepsets_i = self._loss(valid_preds, predicted_scores, gt_box_per_set, gt_valid_sets,
+                                         score_target, set_labels, img_shape=img_metas[i]['img_shape'], device=device,
+                                         lambda_l1=self.l1_weight, lambda_iou=self.giou_weight)
             if loss_deepsets_i['loss_deepsets_total'] is not None:
                 loss_deepsets['loss_deepsets_total'] += loss_deepsets_i['loss_deepsets_total']
                 loss_deepsets['giou'] += loss_deepsets_i['giou']
@@ -448,7 +449,7 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 wandb.log({"Total loss": loss_deepsets["loss_deepsets_total"],
                            "GIOU loss": loss_deepsets["giou"],
                            "L1 loss": loss_deepsets["l1"],
-                           "BCE loss": loss_deepsets["bce"],
+                           "Score L1 loss": loss_deepsets["bce"],
                            "Valid Set Acc": loss_deepsets["valid_set_acc"],
                            "Preds mean": torch.mean(abs(valid_preds))})
         # "max score rate": max_score_rate})
@@ -797,23 +798,14 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         pred = self.ln4(x)
         return pred
 
-    def set_forward4(self, x, device):
-        # x = F.elu(self.ln1(x))
+    def set_forward4(self, x):
         x = F.elu(self.set_transformer(x))
-        # x = F.elu(self.ds1(x))
-        # x = self.dropout(x)
-        # x = self.ln5(x)
-        # if x.ndim == 1:
-        #     x = x.unsqueeze(0)
-        # if len(x) < self.set_size:
-        #     # zero padding
-        #     x = torch.cat([x, torch.zeros((self.set_size - x.shape[0]), x.shape[1]).cuda(device=device)], 0)
-        # if len(x) > self.set_size:
-        #     x = x[:self.set_size]
         pred = self.ln6(x.T)
-        # pred = self.ln7(x)
-        # pred = F.elu(self.set_transformer2(x.T)).unsqueeze(1)
-        # pred = torch.sigmoid(pred)
+        # pred[-1] = torch.sigmoid(pred[-1])
+        return pred
+
+    def set_forward5(self, x):
+        pred = torch.sigmoid(self.set_transformer2(x))
         return pred
 
     def _forward_deepsets(self, multi_bboxes, cls_score, last_layer_feats,
@@ -822,7 +814,7 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         Args:
             labels: bbox labels (assigned by comparing to gt)
         """
-        num_classes = 80
+        num_classes = cls_score.shape[1] - 1
         preds = []
         inputs = []
         set_bboxes = []
@@ -996,13 +988,30 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                 centroids_per_set.append(torch.mean(centroids, 0))
                 # t1 = datetime.datetime.now()
                 if input.shape[0] == 1:
-                    pred = self.set_forward4(input, device).unsqueeze(0).unsqueeze(1)
+                    pred = self.set_forward4(input).unsqueeze(0).unsqueeze(1)
                 else:
-                    pred = self.set_forward4(input, device)
+                    pred = self.set_forward4(input)
+                pred = pred.T
+                # de-normalization
+                pred[:, 2] = ((pred[:, 2] * normalization_data_per_set['x2_std']) + normalization_data_per_set[
+                    'x2_mean']) * img_shape[1]
+                pred[:, 3] = ((pred[:, 3] * normalization_data_per_set['y2_std']) + normalization_data_per_set[
+                    'y2_mean']) * img_shape[0]
+                pred[:, 0] = ((pred[:, 0] * normalization_data_per_set['x1_std']) + normalization_data_per_set[
+                    'x1_mean']) * img_shape[1]
+                pred[:, 1] = ((pred[:, 1] * normalization_data_per_set['y1_std']) + normalization_data_per_set[
+                    'y1_mean']) * img_shape[0]
+                # de normalize score also?
                 preds.append(pred)
-                # print(f'full set {t2 - t1}\n small set {t3 - t2}\n ')
+        if len(preds) > 0:
+            preds_tensor = torch.stack(preds, dim=1).squeeze(0)
+            predicted_scores = self.set_forward5(preds_tensor)
+            if predicted_scores.ndim == 0:
+                predicted_scores = predicted_scores.unsqueeze(0)
+        else:
+            predicted_scores = torch.zeros(0).cuda(device=device)
 
-        return inputs, preds, input_labels, set_bboxes, set_scores, centroids_per_set, normalization_data
+        return inputs, preds, predicted_scores, input_labels, set_bboxes, set_scores, centroids_per_set, normalization_data
 
 
     def _get_target(self,
@@ -1021,12 +1030,7 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         b. calculate iou between set and gt box,
         c. normalize with max iou.
         """
-        one_hot_targets = []
-        soft_targets = []
-        # valid_preds = []
-        valid_preds = torch.empty((5, 0), dtype=torch.float32).cuda(device=device)
-        non_valid_set_bboxes = []
-        non_valid_set_scores = []
+        valid_preds = torch.empty((0, 5), dtype=torch.float32).cuda(device=device)
         valid_set_bboxes = []  # for wandb log
         valid_set_scores = []  # for wandb log
         valid_ious = []  # for error viz
@@ -1034,40 +1038,128 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         valid_normalization_data = []
         gt_box_per_set = torch.empty((0, 4), dtype=torch.float32).cuda(device=device)
         gt_valid_sets = torch.zeros(len(sets), dtype=torch.int64).cuda(device=device)
+        score_target = torch.zeros(len(sets), dtype=torch.float32).cuda(device=device)
         for j, set in enumerate(sets):
             c = set_labels[j]
-            if len(set) > 0 and c in gt_labels:
-                gt_class_inds = torch.where(gt_labels == c)[0].squeeze()
-                # takes boxes of relevant gt
-                class_boxes = torch.index_select(gt_bboxes, 0, gt_class_inds)
-                gt_iou = bbox_overlaps(set_bboxes[j], class_boxes)
-                vals, row_idx = gt_iou.max(
-                    0)  # row idx: indices of set elements with max ious with each GT (1, num_gts)
-                col_idx = vals.argmax(0)  # col idx: index of GT with highest iou with any set element
-                if torch.max(gt_iou[:, col_idx]) < 0.5:
-                    gt_valid_sets[j] = 0
-                else:
-                    gt_valid_sets[j] = 1
-                soft_targets.append(gt_iou[:, col_idx] / (gt_iou[row_idx[col_idx], col_idx] + sys.float_info.epsilon))
-                trg = torch.zeros(len(set), dtype=torch.int64).cuda(device=device)
-                trg[row_idx[col_idx]] = 1
-                one_hot_targets.append(trg)
-                valid_set_bboxes.append(set_bboxes[j])
-                valid_set_scores.append(sets[j][:, -1])
-                valid_ious.append(gt_iou[:, col_idx])
-                valid_centroids.append(centroids_per_set[j])
-                valid_normalization_data.append(normalization_data[j])
-                # gt_box_per_set.append(class_boxes[col_idx])
-                valid_preds = torch.cat((valid_preds, preds[j]), 1)
-                gt_box_per_set = torch.cat((gt_box_per_set, class_boxes[col_idx].unsqueeze(0)), 0)
-                if gt_class_inds.ndim==0:
-                    gt_class_inds = gt_class_inds.unsqueeze(0)
+            assert len(set) > 0 and c in gt_labels
+            gt_class_inds = torch.where(gt_labels == c)[0].squeeze()
+            # takes boxes of relevant gt
+            class_boxes = torch.index_select(gt_bboxes, 0, gt_class_inds)
+            gt_iou = bbox_overlaps(set_bboxes[j], class_boxes)
+            vals, row_idx = gt_iou.max(0)  # row idx: indices of set elements with max ious with each GT (1, num_gts)
+            col_idx = vals.argmax(0)  # col idx: index of GT with highest iou with any set element
+            if torch.max(gt_iou[:, col_idx]) < 0.5:
+                gt_valid_sets[j] = 0
+            else:
+                gt_valid_sets[j] = 1
+            score_target[j] = torch.max(gt_iou[:, col_idx])
+            valid_set_bboxes.append(set_bboxes[j])
+            valid_set_scores.append(sets[j][:, -1])
+            valid_ious.append(gt_iou[:, col_idx])
+            valid_centroids.append(centroids_per_set[j])
+            valid_normalization_data.append(normalization_data[j])
+            # gt_box_per_set.append(class_boxes[col_idx])
+            valid_preds = torch.cat((valid_preds, preds[j]), 0)
+            gt_box_per_set = torch.cat((gt_box_per_set, class_boxes[col_idx].unsqueeze(0)), 0)
+            if gt_class_inds.ndim == 0:
+                gt_class_inds = gt_class_inds.unsqueeze(0)
 
         return valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
-               one_hot_targets, soft_targets, gt_box_per_set, gt_valid_sets
+               score_target, gt_box_per_set, gt_valid_sets
 
-    def _loss(self, pred, valid_centroids, valid_normalization_data, gt_box_per_set, gt_valid_sets, img_shape=None, device=0,
-              lambda_iou=2, lambda_l1=5):
+    def _get_target_refactored(self,
+                    gt_bboxes,
+                    gt_labels,
+                    preds,
+                    scores,
+                    device=0):
+        """
+        matching preds and gts.
+        :returns: gt_target: box ccordinates of matched gt for each pred.
+                  iou_target: iou(pred, matched_gt)
+        """
+
+        iou_mat = bbox_overlaps(preds, gt_bboxes)
+
+        valid_preds = torch.empty((5, 0), dtype=torch.float32).cuda(device=device)
+        valid_set_bboxes = []  # for wandb log
+        valid_set_scores = []  # for wandb log
+        valid_ious = []  # for error viz
+        valid_centroids = []
+        valid_normalization_data = []
+        gt_box_per_set = torch.empty((0, 4), dtype=torch.float32).cuda(device=device)
+        gt_valid_sets = torch.zeros(len(sets), dtype=torch.int64).cuda(device=device)
+        score_target = torch.zeros(len(sets), dtype=torch.float32).cuda(device=device)
+        gtm = torch.zeros(len(gt_bboxes)).cuda(device=device)
+        for j, set in enumerate(sets):
+            c = set_labels[j]
+            assert len(set) > 0 and c in gt_labels
+            gt_class_inds = torch.where(gt_labels == c)[0].squeeze()
+            # takes boxes of relevant gt
+            class_boxes = torch.index_select(gt_bboxes, 0, gt_class_inds)
+            gt_iou = bbox_overlaps(set_bboxes[j], class_boxes)
+            vals, row_idx = gt_iou.max(0)  # row idx: indices of set elements with max ious with each GT (1, num_gts)
+            gtm_c = gtm[gt_class_inds]  # gtm matched of current class
+            col_idx = vals.argmax(0)  # col idx: index of GT with highest iou with any set element
+            if torch.max(gt_iou[:, col_idx]) < 0.5:
+                gt_valid_sets[j] = 0
+            else:
+                gt_valid_sets[j] = 1
+            score_target[j] = torch.max(gt_iou[:, col_idx])
+            valid_set_bboxes.append(set_bboxes[j])
+            valid_set_scores.append(sets[j][:, -1])
+            valid_ious.append(gt_iou[:, col_idx])
+            valid_centroids.append(centroids_per_set[j])
+            valid_normalization_data.append(normalization_data[j])
+            # gt_box_per_set.append(class_boxes[col_idx])
+            valid_preds = torch.cat((valid_preds, preds[j]), 1)
+            gt_box_per_set = torch.cat((gt_box_per_set, class_boxes[col_idx].unsqueeze(0)), 0)
+            if gt_class_inds.ndim == 0:
+                gt_class_inds = gt_class_inds.unsqueeze(0)
+
+        return valid_preds, valid_set_bboxes, valid_set_scores, valid_ious, valid_centroids, valid_normalization_data, \
+               score_target, gt_box_per_set, gt_valid_sets
+
+    def _loss(self, predicted_boxes, predicted_scores, gt_box_per_set, gt_valid_sets, score_target, set_labels,
+              img_shape=None, device=0, lambda_iou=2, lambda_l1=5):
+        losses = dict()
+        assert predicted_boxes is not None, "pred is None"
+        _l1_loss = torch.zeros(1).cuda(device=device)
+        _giou_loss = torch.zeros(1).cuda(device=device)
+
+        if len(predicted_boxes) == 0 or not torch.sum(gt_valid_sets):
+            losses['loss_deepsets_total'] = None
+        else:
+            _giou_loss = self.loss_giou.forward(predicted_boxes[gt_valid_sets > 0, :4], gt_box_per_set[gt_valid_sets > 0],
+                                                self.giou_coef)
+            _l1_loss = self.loss_l1.forward(predicted_boxes[gt_valid_sets > 0, :4], gt_box_per_set[gt_valid_sets > 0])
+
+            ### full map
+            _ap_loss_l = []
+            set_labels = torch.FloatTensor(set_labels).cuda(device=device)
+            for label in torch.unique(set_labels):
+                _ap_loss_iou = []
+                label_mask = set_labels == label
+                for iou in range(50, 100, 5):
+                    iou_mask = score_target > iou/100
+                    if torch.sum(iou_mask[label_mask]) > 0:
+                        _ap_loss_iou.append(self.loss_ap.forward(predicted_scores[label_mask].unsqueeze(0), iou_mask[label_mask].unsqueeze(0)))
+                    else:
+                        _ap_loss_iou.append(torch.ones(1).cuda(device=device))
+                _ap_loss_l.append(sum(_ap_loss_iou)/len(_ap_loss_iou))
+            _ap_loss = sum(_ap_loss_l)/len(_ap_loss_l)
+
+            losses['loss_deepsets_total'] = lambda_iou * _giou_loss \
+                                            + lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1])) \
+                                            + 2 * _ap_loss
+            losses['giou'] = lambda_iou * _giou_loss
+            losses['l1'] = lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1]))
+            losses['bce'] = 2 * _ap_loss
+            losses['valid_set_acc'] = torch.sum(torch.eq(predicted_scores>0.5, gt_valid_sets))/float(len(gt_valid_sets))
+        return losses
+
+    def _old_loss(self, pred, valid_centroids, valid_normalization_data, gt_box_per_set, gt_valid_sets, score_target, set_labels,
+              img_shape=None, device=0, lambda_iou=2, lambda_l1=5):
         losses = dict()
         assert pred is not None, "pred is None"
         _l1_loss = torch.zeros(1).cuda(device=device)
@@ -1092,22 +1184,50 @@ class DeepsetsRoIHeadBboxValidSets(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         pred_for_loss[:, 3] = ((pred[:, 3] * ndps[:, 7]) + ndps[:, 6]) * img_shape[0]
         pred_for_loss[:, 0] = ((pred[:, 0] * ndps[:, 1]) + ndps[:, 0]) * img_shape[1]
         pred_for_loss[:, 1] = ((pred[:, 1] * ndps[:, 3]) + ndps[:, 2]) * img_shape[0]
-
-        _giou_loss = self.loss_giou.forward(pred_for_loss[gt_valid_sets>0, :4], gt_box_per_set, self.giou_coef)
-        _l1_loss = self.loss_l1.forward(pred_for_loss[gt_valid_sets>0, :4], gt_box_per_set)
-        _ce_loss = self.loss_ce.forward(pred[:, 4], gt_valid_sets)
-
-        if len(pred) == 0:
+        if len(pred) == 0 or not torch.sum(gt_valid_sets):
             losses['loss_deepsets_total'] = None
         else:
+            _giou_loss = self.loss_giou.forward(pred_for_loss[gt_valid_sets > 0, :4], gt_box_per_set[gt_valid_sets > 0],
+                                                self.giou_coef)
+            _l1_loss = self.loss_l1.forward(pred_for_loss[gt_valid_sets > 0, :4], gt_box_per_set[gt_valid_sets > 0])
+            # _ce_loss = self.loss_ce.forward(pred[:, 4], gt_valid_sets)
+            # _l1_score_loss = self.loss_l1.forward(pred[:, 4], torch.tensor(score_target).cuda(device=device))
+            # _ap_loss = self.loss_ap.forward(pred[:, 4].unsqueeze(0), gt_valid_sets.unsqueeze(0))
+
+            ### full map
+            _ap_loss_l = []
+            set_labels = torch.FloatTensor(set_labels).cuda(device=device)
+            for label in torch.unique(set_labels):
+                _ap_loss_iou = []
+                label_mask = set_labels == label
+                for iou in range(50, 100, 5):
+                    iou_mask = score_target > iou/100
+                    if torch.sum(iou_mask[label_mask]) > 0:
+                        _ap_loss_iou.append(self.loss_ap.forward(pred[label_mask, 4].unsqueeze(0), iou_mask[label_mask].unsqueeze(0)))
+                    else:
+                        _ap_loss_iou.append(torch.ones(1).cuda(device=device))
+                _ap_loss_l.append(sum(_ap_loss_iou)/len(_ap_loss_iou))
+            _ap_loss = sum(_ap_loss_l)/len(_ap_loss_l)
+
+            # ap 0.5-0.95
+            # _ap_loss_iou = []
+            # for iou in range(50, 100, 5):
+            #     iou_mask = score_target > iou/100
+            #     if torch.sum(iou_mask) > 0:
+            #         _ap_loss_iou.append(self.loss_ap.forward(pred[:, 4].unsqueeze(0), iou_mask.unsqueeze(0)))
+            #     else:
+            #         _ap_loss_iou.append(torch.ones(1).cuda(device=device))
+            # _ap_loss = sum(_ap_loss_iou)/len(_ap_loss_iou)
+
             losses['loss_deepsets_total'] = lambda_iou * _giou_loss \
                                             + lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1])) \
-                                            + 1 * _ce_loss
+                                            + 2*_ap_loss
             losses['giou'] = lambda_iou * _giou_loss
             losses['l1'] = lambda_l1 * _l1_loss / (np.mean(img_shape[0] + img_shape[1]))
             losses['std'] = 2*(torch.mean(ndps[:, 1]) + torch.mean(ndps[:, 3]) \
                             + torch.mean(ndps[:, 5]) + torch.mean(ndps[:, 7]))
-            losses['bce'] = _ce_loss
-            losses['valid_set_acc'] = torch.sum(torch.eq(torch.sigmoid(pred[:, 4])>0.5, gt_valid_sets))/float(len(gt_valid_sets))
+            losses['bce'] = 2*_ap_loss
+            # losses['bce'] = 0.5 * _l1_score_loss
+            losses['valid_set_acc'] = torch.sum(torch.eq(pred[:, 4]>0.5, gt_valid_sets))/float(len(gt_valid_sets))
         return losses
 

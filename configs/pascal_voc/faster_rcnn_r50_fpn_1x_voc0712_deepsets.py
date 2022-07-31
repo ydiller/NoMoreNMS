@@ -69,7 +69,7 @@ model = dict(
             in_channels=256,
             fc_out_channels=1024,
             roi_feat_size=7,
-            num_classes=80,
+            num_classes=20,
             bbox_coder=dict(
                 type='DeltaXYWHBBoxCoder',
                 target_means=[0., 0., 0., 0.],
@@ -153,16 +153,15 @@ model = dict(
     )
 
 # dataset settings
-dataset_type = 'CocoDataset'
-data_root = '/COCO/COCO2017/coco/'
+dataset_type = 'VOCDataset'
+data_root = '/VOCdevkit/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+    dict(type='Resize', img_scale=(1000, 600), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5, direction=['horizontal', 'vertical']),
-    # dict(type='Rotate', prob=0.5, level=2),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
@@ -172,7 +171,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1333, 800),
+        img_scale=(1000, 600),
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -184,27 +183,31 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=4,
+    samples_per_gpu=4, 
     workers_per_gpu=0,
     train=dict(
+        type='RepeatDataset',
+        times=3,
+        dataset=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_train2017.json',  # 50k, 10k, 5k, 2k, 500
-        img_prefix=data_root + 'images/train2017/',
-        pipeline=train_pipeline),
+        ann_file=[
+            data_root + 'VOC2007/ImageSets/Main/trainval.txt',
+            data_root + 'VOC2012/ImageSets/Main/trainval.txt'
+        ],
+        img_prefix=[data_root + 'VOC2007/', data_root + 'VOC2012/'],
+        pipeline=train_pipeline)),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_val2017_100.json',  # 100, 2
-        img_prefix=data_root + 'images/val2017/',
+        ann_file=data_root + 'VOC2007/ImageSets/Main/val.txt',
+        img_prefix=data_root + 'VOC2007/',
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_val2017_100.json',
-        img_prefix=data_root + 'images/val2017/',
-        pipeline=test_pipeline,
-        samples_per_gpu=6))
+        ann_file=data_root + 'VOC2007/ImageSets/Main/minival.txt',
+        img_prefix=data_root + 'VOC2007/',
+        pipeline=test_pipeline))
 
-evaluation = dict(interval=500, metric='bbox', by_epoch=False, save_best='auto')
-# evaluation = dict(interval=1, metric='bbox')
+evaluation = dict(interval=3000, metric='mAP', by_epoch=False, save_best='auto')
 
 # optimizer
 # optimizer = dict(type='Adam', lr=0.00001, weight_decay=0.00000001)  # set selection
@@ -214,25 +217,24 @@ evaluation = dict(interval=500, metric='bbox', by_epoch=False, save_best='auto')
 optimizer = dict(type='Adam', lr=0.001, weight_decay=0.00001)  # bbox prediction giou with normalization
 optimizer_config = dict(grad_clip=None)
 # learning policy
+# lr_config = dict(
+#     by_epoch=False,
+#     policy='poly',
+#     warmup='linear',
+#     warmup_iters=200,
+#     warmup_ratio=0.001)
 lr_config = dict(
     by_epoch=False,
-    policy='poly',
+    policy='step',
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    min_lr=0.00001)
-# lr_config = dict(
-#     by_epoch=False,
-#     policy='step',
-#     warmup='linear',
-#     warmup_iters=200,
-#     warmup_ratio=0.001,
-#     # step=[1, 3, 5, 8],
-#     # gamma=0.1
-#     step=20000,
-#     gamma=0.75)
+    # step=[1, 3, 5, 8],
+    # gamma=0.1
+    step=20000,
+    gamma=0.75)
 # runner = dict(type='EpochBasedRunner', max_epochs=12)
-runner = dict(type='MyRunner', max_epochs=8)
+runner = dict(type='MyRunner', max_epochs=24)
 checkpoint_config = dict(interval=1)
 # yapf:disable
 log_config = dict(
@@ -251,11 +253,11 @@ custom_hooks = [
 
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = '/data/pretrained_models/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth'
+load_from = '/data/pretrained_models/faster_rcnn_r50_fpn_1x_voc0712_20220320_192712-54bef0f3.pth'
 # resume_from = 'work_dirs/faster_rcnn_r50_fpn_1x_nomorenms/epoch_1_08.pth'
 resume_from = None
 workflow = [('train', 1), ('val', 1)]
-work_dir = 'work_dirs/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets'
+work_dir = 'work_dirs/faster_rcnn_r50_fpn_1x_nomorenms_pascalvoc'
 # disable opencv multithreading to avoid system being overloaded
 opencv_num_threads = 0
 # set multi-process start method as `fork` to speed up the training

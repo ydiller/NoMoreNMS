@@ -14,7 +14,7 @@ from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
 
-from mmdet.apis import multi_gpu_test, single_gpu_test
+from mmdet.apis import multi_gpu_test, single_gpu_test_original
 from mmdet.datasets import (build_dataloader, build_dataset,
                             replace_ImageToTensor)
 from mmdet.models import build_detector
@@ -104,7 +104,6 @@ def parse_args():
         default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
-    parser.add_argument('--with_wandb', action='store_true')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -225,18 +224,14 @@ def main():
     if not distributed:
         viz_dir = 'results/ds_error_test_set_giou'
         show_viz = 0
+        with_wandb = 0
         if show_viz:
             clean_dir(viz_dir)
-        if args.with_wandb:
-            with wandb.init(name=f'test {cfg.model.test_cfg.rcnn.deepsets_config.max_num} '
-                                 f'{cfg.model.test_cfg.rcnn.deepsets_config.top_c}'):
-                model = MMDataParallel(model, device_ids=cfg.gpu_ids)
-                outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
-                                          args.show_score_thr, viz_dir=viz_dir, show_viz=show_viz, with_wandb=1)
-        else:
-            model = MMDataParallel(model, device_ids=cfg.gpu_ids)
-            outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
-                                      args.show_score_thr, viz_dir=viz_dir, show_viz=show_viz, with_wandb=0)
+        # with wandb.init(name=f'test {cfg.model.test_cfg.rcnn.deepsets_config.max_num} '
+        #                      f'{cfg.model.test_cfg.rcnn.deepsets_config.top_c}'):
+        model = MMDataParallel(model, device_ids=cfg.gpu_ids)
+        outputs = single_gpu_test_original(model, data_loader, args.show, args.show_dir,
+                                  args.show_score_thr)
     else:
         model = MMDistributedDataParallel(
             model.cuda(),

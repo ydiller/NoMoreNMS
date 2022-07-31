@@ -421,6 +421,10 @@ class BBoxTestMixin:
         return det_bboxes, det_labels, sets_list
 
 
+    def weighted_average_score(self, scores):
+        scores_sum = torch.sum(scores)
+        weights = scores/scores_sum
+        return torch.sum(scores * weights)
 
     def simple_test_deepsets_bbox_valid_sets(self,
                            x,
@@ -511,36 +515,39 @@ class BBoxTestMixin:
 
             det_bbox_list = []
             det_labels_list = []
-            sets, preds, set_labels, set_bboxes, set_scores, centroids, normalization_data = self._forward_deepsets(bboxes, scores, feats[i],
+            sets, preds, predicted_scores, set_labels, set_bboxes, set_scores, centroids, normalization_data = self._forward_deepsets(bboxes, scores, feats[i],
                                                                              mode='test', ds_cfg=rcnn_test_cfg['deepsets_config'],
                                                                              img_shape=img_shapes[i], device=device, score_thr=0.05)
             one = torch.ones((1, 1)).cuda(device=device)
             for j, _set in enumerate(sets):
-                bbox = preds[j].T
-                centroids_per_set = centroids[j]
-                ndps = normalization_data[j]
-                # bbox[:, 2] = (centroids_per_set[0] + (bbox[:, 2])) * img_shapes[i][1]
-                # bbox[:, 3] = (centroids_per_set[1] + (bbox[:, 3])) * img_shapes[i][0]
-                # bbox[:, 0] = (centroids_per_set[0] - (bbox[:, 0])) * img_shapes[i][1]
-                # bbox[:, 1] = (centroids_per_set[1] - (bbox[:, 1])) * img_shapes[i][0]
+                # bbox = preds[j][:4].T
+                # set_score = preds[j][4]
+                # centroids_per_set = centroids[j]
+                # ndps = normalization_data[j]
+                # # bbox[:, 2] = (centroids_per_set[0] + (bbox[:, 2])) * img_shapes[i][1]
+                # # bbox[:, 3] = (centroids_per_set[1] + (bbox[:, 3])) * img_shapes[i][0]
+                # # bbox[:, 0] = (centroids_per_set[0] - (bbox[:, 0])) * img_shapes[i][1]
+                # # bbox[:, 1] = (centroids_per_set[1] - (bbox[:, 1])) * img_shapes[i][0]
+                #
+                # bbox[:, 2] = ((bbox[:, 2]*ndps['x2_std'])+ndps['x2_mean']) * img_shapes[i][1]
+                # bbox[:, 3] = ((bbox[:, 3]*ndps['y2_std'])+ndps['y2_mean']) * img_shapes[i][0]
+                # bbox[:, 0] = ((bbox[:, 0]*ndps['x1_std'])+ndps['x1_mean']) * img_shapes[i][1]
+                # bbox[:, 1] = ((bbox[:, 1]*ndps['y1_std'])+ndps['y1_mean']) * img_shapes[i][0]
+                # score = torch.max(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
 
-                bbox[:, 2] = ((bbox[:, 2]*ndps['x2_std'])+ndps['x2_mean']) * img_shapes[i][1]
-                bbox[:, 3] = ((bbox[:, 3]*ndps['y2_std'])+ndps['y2_mean']) * img_shapes[i][0]
-                bbox[:, 0] = ((bbox[:, 0]*ndps['x1_std'])+ndps['x1_mean']) * img_shapes[i][1]
-                bbox[:, 1] = ((bbox[:, 1]*ndps['y1_std'])+ndps['y1_mean']) * img_shapes[i][0]
-
-                # bbox[:, 2] = ((bbox[:, 2]*0.4)+ndps['x2_mean']) * img_shapes[i][1]
-                # bbox[:, 3] = ((bbox[:, 3]*0.4)+ndps['y2_mean']) * img_shapes[i][0]
-                # bbox[:, 0] = ((bbox[:, 0]*0.6)+ndps['x1_mean']) * img_shapes[i][1]
-                # bbox[:, 1] = ((bbox[:, 1]*0.6)+ndps['y1_mean']) * img_shapes[i][0]
-
+                # new architecture
+                bbox = preds[j][:4]
+                score = predicted_scores[j]
 
                 if set_bboxes[j][:, 0].sum() == set_bboxes[j][0, 0]:  # only one element in set
-                    bbox[:, :4] = set_bboxes[j][torch.argmax(_set.sum(1))]
+                    bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]
+                    score = torch.max(set_scores[j])
                 original_set_size = sum(_set.sum(1) != 0)
-                # score = torch.max(_set[:, -1]) * torch.ones(1, 1).cuda(device=device)
-                score = torch.max(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
-                bbox = torch.cat([bbox, score, one * original_set_size, one * j], dim=1)
+                # bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]  # nms
+
+                # score = self.weighted_average_score(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
+                # bbox = torch.cat([bbox, score, one * set_score, one * set_score], dim=1)
+                bbox = torch.cat([bbox, one * score, one * score, one * score], dim=1)
                 det_bbox_list.append(bbox)
                 label = set_labels[j].unsqueeze(0)
                 det_labels_list.append(label)

@@ -260,7 +260,7 @@ class StandardRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
         ]
 
         if not self.with_mask:
-            return bbox_results, det_bboxes, det_labels
+            return bbox_results #, det_bboxes, det_labels
         else:
             segm_results = self.simple_test_mask(
                 x, img_metas, det_bboxes, det_labels, rescale=rescale)

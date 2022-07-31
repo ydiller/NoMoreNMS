@@ -393,7 +393,7 @@ def eval_map(det_results,
         # sort all det bboxes by score, also sort tp and fp
         cls_dets = np.vstack(cls_dets)
         num_dets = cls_dets.shape[0]
-        sort_inds = np.argsort(-cls_dets[:, -1])
+        sort_inds = np.argsort(-cls_dets[:, -1])  # original: np.argsort(-cls_dets[:, -1])
         tp = np.hstack(tp)[:, sort_inds]
         fp = np.hstack(fp)[:, sort_inds]
         # calculate recall and precision with tp and fp

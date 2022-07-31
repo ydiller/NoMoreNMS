@@ -121,11 +121,78 @@ def single_gpu_test(model,
                 img = img.astype(np.uint8)
                 img = np.moveaxis(img, 0, -1)
                 img = cv.UMat(img).get()
-                h, w, _ = img_metas[j]['img_shape']
-                img_show = img[:h, :w, :]
-                ori_h, ori_w = img_metas[j]['ori_shape'][:-1]
-                img_show = mmcv.imresize(img_show, (ori_w, ori_h))
+                if img.ndim == 3:  # coco
+                    h, w, _ = img_metas[j]['img_shape']
+                    img_show = img[:h, :w, :]
+                    ori_h, ori_w = img_metas[j]['ori_shape'][:-1]
+                    img_show = mmcv.imresize(img_show, (ori_w, ori_h))
+                elif img.ndim == 2:  # pascal voc
+                    h, w, _ = img_metas[j]['img_shape']
+                    img_show = img[:w, :h]
+                    ori_h, ori_w = img_metas[j]['ori_shape'][:-1]
+                    img_show = mmcv.imresize(img_show, (ori_h, ori_w))
+                    img_show = mmcv.imrotate(img_show, 90, auto_bound=True)
+                    img_show = mmcv.imflip(img_show)
+                else:
+                    raise ValueError('Unknown dataset type')
                 log_boxes(idx, dataset, bboxes[j], labels[j], img_show)
+    return results
+
+
+def single_gpu_test_original(model,
+                    data_loader,
+                    show=False,
+                    out_dir=None,
+                    show_score_thr=0.3):
+    model.eval()
+    results = []
+    dataset = data_loader.dataset
+    PALETTE = getattr(dataset, 'PALETTE', None)
+    prog_bar = mmcv.ProgressBar(len(dataset))
+    for i, data in enumerate(data_loader):
+        with torch.no_grad():
+            result = model(return_loss=False, rescale=True, **data)
+
+        batch_size = len(result)
+        if show or out_dir:
+            if batch_size == 1 and isinstance(data['img'][0], torch.Tensor):
+                img_tensor = data['img'][0]
+            else:
+                img_tensor = data['img'][0].data[0]
+            img_metas = data['img_metas'][0].data[0]
+            imgs = tensor2imgs(img_tensor, **img_metas[0]['img_norm_cfg'])
+            assert len(imgs) == len(img_metas)
+
+            for i, (img, img_meta) in enumerate(zip(imgs, img_metas)):
+                h, w, _ = img_meta['img_shape']
+                img_show = img[:h, :w, :]
+
+                ori_h, ori_w = img_meta['ori_shape'][:-1]
+                img_show = mmcv.imresize(img_show, (ori_w, ori_h))
+
+                if out_dir:
+                    out_file = osp.join(out_dir, img_meta['ori_filename'])
+                else:
+                    out_file = None
+
+                model.module.show_result(
+                    img_show,
+                    result[i],
+                    bbox_color=PALETTE,
+                    text_color=PALETTE,
+                    mask_color=PALETTE,
+                    show=show,
+                    out_file=out_file,
+                    score_thr=show_score_thr)
+
+        # encode mask results
+        if isinstance(result[0], tuple):
+            result = [(bbox_results, encode_mask_results(mask_results))
+                      for bbox_results, mask_results in result]
+        results.extend(result)
+
+        for _ in range(batch_size):
+            prog_bar.update()
     return results
 
 
@@ -456,9 +523,10 @@ def log_boxes(index, dataset, det_bboxes, det_labels, img):
                 "maxY": box[3].item()},
             "class_id": det_labels[i].item(),
             "domain": "pixel",
-            "box_caption": f'{class_name} {box[4].item():.3f} {i}',
+            "box_caption": f'{class_name} {box[4].item():.2f} {box[5].item():.2f}',
             "scores": {"score": box[4].item(),
                        "rank": i,
+                       "set score": box[5].item(),
                        "set id": box[6].item()}
         }
         pred_boxes_log.append(box_data)

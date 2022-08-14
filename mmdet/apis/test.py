@@ -16,7 +16,7 @@ from mmcv.image import tensor2imgs
 from mmcv.runner import get_dist_info
 from mmdet.core import encode_mask_results
 from mmdet.core.bbox.iou_calculators.iou2d_calculator import bbox_overlaps
-
+from tools.misc.style_opencv import drawrect
 
 STOP_TEST_AT = 1
 
@@ -135,7 +135,7 @@ def single_gpu_test(model,
                     img_show = mmcv.imflip(img_show)
                 else:
                     raise ValueError('Unknown dataset type')
-                log_boxes(idx, dataset, bboxes[j], labels[j], img_show)
+                log_boxes(idx, dataset, bboxes[j], labels[j], img_show, sets[j])
     return results
 
 
@@ -371,7 +371,8 @@ def getIouErrorPerObjectWithSetDrawing(img, bboxes, labels, sets, gt_dict, scale
     for j in range(len(gt_boxes)):
         img_to_save = img.copy()
         for b in valid_sets[j]:
-            cv.rectangle(img_to_save, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (255, 255, 255), 1)
+            # drawrect(img_to_save, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (255, 0, 0), 1, 'dotted')
+            cv.rectangle(img_to_save, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (255, 165, 0), 1)
         # gt
         x1 = int(gt_boxes[j][0])
         y1 = int(gt_boxes[j][1])
@@ -380,9 +381,9 @@ def getIouErrorPerObjectWithSetDrawing(img, bboxes, labels, sets, gt_dict, scale
         class_name = classes_names[gt_labels[j]]
         color = (0, 255, 0)  # green for gt
         # score = str(format(scores[j], '.2f'))
-        cv.rectangle(img_to_save, (x1, y1), (x2, y2), color, 1)
-        cv.putText(img_to_save, str(class_name), (x1, y1-15), cv.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0),
-                   thickness=1)  # Write class number
+        cv.rectangle(img_to_save, (x1, y1), (x2, y2), color, 3)
+        cv.putText(img_to_save, str(class_name), (x1, y1-15), cv.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 0),
+                   thickness=2)  # Write class number
 
         # prediction
         x1 = int(bboxes[inds[j]][0])
@@ -396,16 +397,16 @@ def getIouErrorPerObjectWithSetDrawing(img, bboxes, labels, sets, gt_dict, scale
         else:
             color = (255, 165, 0)
             p = 'miss'
-        cv.rectangle(img_to_save, (x1, y1), (x2, y2), color, 1)  # Draw Rectangle with the coordinates
+        cv.rectangle(img_to_save, (x1, y1), (x2, y2), color, 3)  # Draw Rectangle with the coordinates
         # write class labels
-        cv.putText(img_to_save,  f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]}',
-                   (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0),
-                   thickness=3)  # stroke
-        cv.putText(img_to_save, f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]}',
-                   (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255),
-                   thickness=1)
+        # cv.putText(img_to_save,  f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]}',
+        #            (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0),
+        #            thickness=3)  # stroke
+        # cv.putText(img_to_save, f'e: {current_error.item():.2f} s: {bboxes[inds[j]][4]:.2f} p: {bboxes[inds[j]][5]}',
+        #            (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255),
+        #            thickness=1)
 
-        plt.imsave(f'{out_dir}/i{img_id}_g{j}_{p}_{int(bboxes[inds[j]][5])}_{current_error.item():.2f}.png', img_to_save)
+        plt.imsave(f'{out_dir}/{current_error.item():.2f}_i{img_id}_g{j}_{p}_{int(bboxes[inds[j]][5])}_{current_error.item():.2f}.png', img_to_save)
         # save bboxes as csv:
         # df1 = pd.DataFrame(bboxes[:, :-2].cpu().numpy(), columns=['x1', 'y1', 'x2', 'y2', 'score'])
         # df2 = pd.DataFrame([classes_names[int(x.item())] for x in labels], columns=['class'])
@@ -503,7 +504,7 @@ def getIouErrorPerObject(img, bboxes_mat, labels_mat, gt_dict, img_id, out_dir=N
     return img, error
 
 
-def log_boxes(index, dataset, det_bboxes, det_labels, img):
+def log_boxes(index, dataset, det_bboxes, det_labels, img, sets):
     gt = dataset.get_ann_info(index)  # 'bboxes', 'labels'
     classes_list = dataset.CLASSES
     class_id_to_label = {k: v for k, v in enumerate(classes_list)}
@@ -523,11 +524,10 @@ def log_boxes(index, dataset, det_bboxes, det_labels, img):
                 "maxY": box[3].item()},
             "class_id": det_labels[i].item(),
             "domain": "pixel",
-            "box_caption": f'{class_name} {box[4].item():.2f} {box[5].item():.2f}',
+            "box_caption": f'{class_name} {box[4].item():.2f}',
             "scores": {"score": box[4].item(),
                        "rank": i,
-                       "set score": box[5].item(),
-                       "set id": box[6].item()}
+                       "set id": box[5].item()}
         }
         pred_boxes_log.append(box_data)
 
@@ -545,21 +545,25 @@ def log_boxes(index, dataset, det_bboxes, det_labels, img):
         }
         gt_boxes_log.append(box_data)
 
-    # for i, box in enumerate(statistics):
-    #     box_data = {
-    #         "position": {
-    #             "minX": box[0].item(),
-    #             "maxX": box[2].item(),
-    #             "minY": box[1].item(),
-    #             "maxY": box[3].item()},
-    #         "class_id": i,
-    #         "domain": "pixel",
-    #         "box_caption": f'{i}',
-    #         "scores": {"proposal id": i}
-    #     }
-    #     proposal_log.append(box_data)
+    for i, _set in enumerate(sets):
+        for j, box in enumerate(_set):
+            box_data = {
+                "position": {
+                    "minX": box[0].item(),
+                    "maxX": box[2].item(),
+                    "minY": box[1].item(),
+                    "maxY": box[3].item()},
+                "class_id": i,
+                "domain": "pixel",
+                "box_caption": f'{i}',
+                "scores": {"set id": i}
+            }
+            proposal_log.append(box_data)
 
     wandb.log({ "image": wandb.Image(img,
-          boxes={"predictions": {"box_data": pred_boxes_log, "class_labels": class_id_to_label},
-                 "gts": {"box_data": gt_boxes_log, "class_labels": class_id_to_label}
+          boxes={
+              "preds": {"box_data": pred_boxes_log, "class_labels": class_id_to_label},
+                 "gts": {"box_data": gt_boxes_log, "class_labels": class_id_to_label},
+              "sets": {"box_data": proposal_log, "class_labels": class_id_to_label},
+
                  })})

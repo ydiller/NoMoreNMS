@@ -25,6 +25,7 @@ from .trident_roi_head import TridentRoIHead
 from .deepsets_roi_head import DeepsetsRoIHead
 from .deepsets_roi_head_bbox import DeepsetsRoIHeadBbox
 from .deepsets_roi_head_bbox_valid_sets import DeepsetsRoIHeadBboxValidSets
+from .deepsets_forward import *
 
 __all__ = [
     'BaseRoIHead', 'CascadeRoIHead', 'DoubleHeadRoIHead', 'MaskScoringRoIHead',
@@ -37,5 +38,6 @@ __all__ = [
     'CoarseMaskHead', 'DynamicRoIHead', 'SparseRoIHead', 'TridentRoIHead',
     'SCNetRoIHead', 'SCNetMaskHead', 'SCNetSemanticHead', 'SCNetBBoxHead',
     'FeatureRelayHead', 'GlobalContextHead', 'DeepsetsRoIHead', 'DeepsetsRoIHeadBbox',
-    'DeepsetsRoIHeadBboxValidSets'
+    'DeepsetsRoIHeadBboxValidSets', 'forward_box', 'forward_centroids',
+    'forward_normalized'
 ]

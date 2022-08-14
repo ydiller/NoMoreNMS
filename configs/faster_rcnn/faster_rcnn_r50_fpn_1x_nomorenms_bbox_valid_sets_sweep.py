@@ -4,10 +4,6 @@ deepsets_cfg = dict(
                     type='MSELoss', loss_weight=0.0),
                 loss_ce=dict(
                     type='CrossEntropyLoss', loss_weight=1.0),
-                # 'forward_box' |'forward_centroids' | 'forward_normalized'
-                bbox_prediction_type='forward_centroids',
-                # 'bbox' | 'bbox_spacial' | 'bbox_spacial_vis' | 'bbox_spacial_vis_label'
-                input_type='bbox_spacial_vis_label',
                 ds1=1000,
                 ds2=600,
                 ds3=300,
@@ -17,24 +13,17 @@ deepsets_cfg = dict(
                 top_c=3,
                 max_num=512,
                 iou_thresh=0.5,
-                indim=13 + 1024,  # 1117
-                dim_input=256,
+                indim=13,  # 1117
+                dim_input=13,
                 dim_output=5,
                 dim_hidden=16,
                 num_inds=16,
                 num_heads=4,
-                l1_weight=0.5,
+                l1_weight=2,
                 giou_weight=2,
-                ap_weight=1,
+                ap_weight=2,
                 giou_coef=0.3)
-if deepsets_cfg['input_type'] == 'bbox':
-    deepsets_cfg['indim'] = 5
-elif deepsets_cfg['input_type'] == 'bbox_spacial':
-    deepsets_cfg['indim'] = 13
-elif deepsets_cfg['input_type'] == 'bbox_spacial_vis':
-    deepsets_cfg['indim'] = 13 + 1024
-elif deepsets_cfg['input_type'] == 'bbox_spacial_vis_label':
-    deepsets_cfg['indim'] = 13 + 1024 + 80
+
 # model settings
 model = dict(
     type='FasterRCNN',
@@ -144,7 +133,7 @@ model = dict(
             pos_weight=-1,
             debug=False,
             deepsets_config=deepsets_cfg,
-            with_wandb=0),
+            with_wandb=1),
         ),
     test_cfg=dict(
         rpn=dict(
@@ -158,7 +147,7 @@ model = dict(
             # nms=dict(type='soft_nms', iou_thr=0.5, min_score=0.05),
             max_per_img=1000,
             deepsets_config=deepsets_cfg,
-            with_wandb=0),
+            with_wandb=1),
         )
         # soft-nms is also supported for rcnn testing
         # e.g., nms=dict(type='soft_nms', iou_threshold=0.5, min_score=0.05)
@@ -197,8 +186,7 @@ test_pipeline = [
 ]
 data = dict(
     samples_per_gpu=4,
-    workers_per_gpu=0,
-    # 'annotations/instances_train2017_2k.json' 'images/train2017/'
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/instances_train2017.json',  # 50k, 10k, 5k, 2k, 500
@@ -206,8 +194,8 @@ data = dict(
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_val2017_100.json',  # 100, 2
-        img_prefix=data_root + 'images/val2017/',
+        ann_file=data_root + 'annotations/instances_train2017_2k.json',  # 100, 2
+        img_prefix=data_root + 'images/train2017/',
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
@@ -216,22 +204,22 @@ data = dict(
         pipeline=test_pipeline,
         samples_per_gpu=6))
 
-evaluation = dict(interval=1000, metric='bbox', by_epoch=False, save_best='auto')
-# evaluation = dict(interval=1, metric='bbox')
+evaluation = dict(interval=5000, metric='bbox', by_epoch=False, save_best='auto')
+# evaluation = dict(interval=1, metric='bbowox')
 
 # optimizer
 # optimizer = dict(type='Adam', lr=0.00001, weight_decay=0.00000001)  # set selection
 # optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.0000001)  # bbox prediction l1. mse
 # optimizer = dict(type='Adam', lr=0.00001, weight_decay=0.000001)  # bbox prediction giou, map 42
 # optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.001)  # bbox prediction giou
-optimizer = dict(type='Adam', lr=0.0001, weight_decay=0.00001)  # bbox prediction giou with normalization
+optimizer = dict(type='Adam', lr=0.001, weight_decay=0.00001)  # bbox prediction giou with normalization
 optimizer_config = dict(grad_clip=None)
 # learning policy
 lr_config = dict(
     by_epoch=False,
     policy='poly',
     warmup='linear',
-    warmup_iters=2000,
+    warmup_iters=5000,
     warmup_ratio=0.001,
     min_lr=0.00001)
 # lr_config = dict(
@@ -245,7 +233,7 @@ lr_config = dict(
 #     step=20000,
 #     gamma=0.75)
 # runner = dict(type='EpochBasedRunner', max_epochs=12)
-runner = dict(type='MyRunner', max_epochs=24)
+runner = dict(type='MyRunner', max_epochs=1)
 checkpoint_config = dict(interval=1)
 # yapf:disable
 log_config = dict(

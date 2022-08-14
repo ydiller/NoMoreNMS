@@ -542,6 +542,17 @@ class CocoDataset(CustomDataset):
                     eval_results[item] = val
             else:
                 cocoEval.evaluate()
+                # ### test on gt ###
+                # for img in cocoEval.evalImgs:
+                #     if img:
+                #         for i, match in enumerate(img['dtMatches'][0]):
+                #             if match > 0:
+                #                 # img['dtMatches'][:, i] = match
+                #                 img['dtScores'][i] = 1.0
+                #             else:
+                #                 cocoDt.anns[img['dtIds'][i]]['score'] = 0
+                #                 img['dtScores'][i] = 0
+                ###################
                 cocoEval.accumulate()
 
                 # Save coco summarize print information to logger

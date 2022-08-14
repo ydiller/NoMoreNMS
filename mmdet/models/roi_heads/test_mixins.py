@@ -536,18 +536,20 @@ class BBoxTestMixin:
                 # score = torch.max(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
 
                 # new architecture
-                bbox = preds[j][:4]
+                bbox = preds[j].unsqueeze(0)
                 score = predicted_scores[j]
 
                 if set_bboxes[j][:, 0].sum() == set_bboxes[j][0, 0]:  # only one element in set
                     bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]
                     score = torch.max(set_scores[j])
                 original_set_size = sum(_set.sum(1) != 0)
-                # bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]  # nms
-
+                # nms:
+                # bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]
+                score = torch.max(set_scores[j])
                 # score = self.weighted_average_score(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
                 # bbox = torch.cat([bbox, score, one * set_score, one * set_score], dim=1)
-                bbox = torch.cat([bbox, one * score, one * score, one * score], dim=1)
+                # last item is set id for show_viz, or score for pascalvoc
+                bbox = torch.cat([bbox, one * score, one * j, one * j], dim=1)
                 det_bbox_list.append(bbox)
                 label = set_labels[j].unsqueeze(0)
                 det_labels_list.append(label)

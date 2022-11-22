@@ -177,7 +177,8 @@ def train_detector(model,
     # register eval hooks
     if validate:
         # Support batch_size > 1 in validation
-        val_samples_per_gpu = cfg.data.val.pop('samples_per_gpu', 1)
+        # val_samples_per_gpu = cfg.data.val.pop('samples_per_gpu', 1)  # original
+        val_samples_per_gpu = cfg.data['samples_per_gpu']
         if val_samples_per_gpu > 1:
             # Replace 'ImageToTensor' to 'DefaultFormatBundle'
             cfg.data.val.pipeline = replace_ImageToTensor(

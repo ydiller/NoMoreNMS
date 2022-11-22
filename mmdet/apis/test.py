@@ -18,9 +18,6 @@ from mmdet.core import encode_mask_results
 from mmdet.core.bbox.iou_calculators.iou2d_calculator import bbox_overlaps
 from tools.misc.style_opencv import drawrect
 
-STOP_TEST_AT = 1
-
-
 def single_gpu_test(model,
                     data_loader,
                     show=False,
@@ -35,10 +32,9 @@ def single_gpu_test(model,
     PALETTE = getattr(dataset, 'PALETTE', None)
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
-        # if i >= STOP_TEST_AT:     # temporary condition for testing
-        #     break
         with torch.no_grad():
-            result, bboxes, labels, sets = model(return_loss=False, rescale=True, **data)
+            # result, bboxes, labels, sets = model(return_loss=False, rescale=True, **data)
+            result = model(return_loss=False, rescale=True, **data)  # original detector
         batch_size = len(result)
         if i == 0:
             const_batch_size = batch_size
@@ -406,7 +402,7 @@ def getIouErrorPerObjectWithSetDrawing(img, bboxes, labels, sets, gt_dict, scale
         #            (x1, y1-3), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255),
         #            thickness=1)
 
-        plt.imsave(f'{out_dir}/{current_error.item():.2f}_i{img_id}_g{j}_{p}_{int(bboxes[inds[j]][5])}_{current_error.item():.2f}.png', img_to_save)
+        plt.imsave(f'{out_dir}/i{img_id}_g{j}_{p}_{int(bboxes[inds[j]][5])}_{current_error.item():.2f}.png', img_to_save)
         # save bboxes as csv:
         # df1 = pd.DataFrame(bboxes[:, :-2].cpu().numpy(), columns=['x1', 'y1', 'x2', 'y2', 'score'])
         # df2 = pd.DataFrame([classes_names[int(x.item())] for x in labels], columns=['class'])

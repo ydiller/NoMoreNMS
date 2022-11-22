@@ -96,10 +96,10 @@ def forward_box(roi_head, multi_bboxes, cls_score, last_layer_feats, input_type,
         preds_tensor = torch.stack(preds, dim=1).squeeze(0)
         predicted_scores = preds_tensor[:, -1]
         preds_tensor_reshaped = torch.zeros((preds_tensor.shape[0], 4)).cuda(device=device)
-        preds_tensor_reshaped[:, 2] = preds_tensor[:, 2] * img_shape[1]
-        preds_tensor_reshaped[:, 3] = preds_tensor[:, 3] * img_shape[0]
         preds_tensor_reshaped[:, 0] = preds_tensor[:, 0] * img_shape[1]
         preds_tensor_reshaped[:, 1] = preds_tensor[:, 1] * img_shape[0]
+        preds_tensor_reshaped[:, 2] = (preds_tensor[:, 0] + preds_tensor[:, 2]) * img_shape[1]
+        preds_tensor_reshaped[:, 3] = (preds_tensor[:, 1] + preds_tensor[:, 3]) * img_shape[0]
         input_labels = torch.stack(input_labels)
         if predicted_scores.ndim == 0:
             predicted_scores = predicted_scores.unsqueeze(0)
@@ -170,17 +170,17 @@ def forward_centroids(roi_head, multi_bboxes, cls_score, last_layer_feats, input
             set_ious_sum = torch.sum(ious[sets[s]][:, sets[s]], 1).unsqueeze(1)
             current_scores = scores[sets[s]].unsqueeze(1)
             # zero mean center points
-            x1 = torch.mean(centroids, 0)[0] - x1
-            x2 = x2 - torch.mean(centroids, 0)[0]
-            y1 = torch.mean(centroids, 0)[1] - y1
-            y2 = y2 - torch.mean(centroids, 0)[1]
+            x1_centered = torch.mean(centroids, 0)[0] - x1
+            x2_centered = x2 - torch.mean(centroids, 0)[0]
+            y1_centered = torch.mean(centroids, 0)[1] - y1
+            y2_centered = y2 - torch.mean(centroids, 0)[1]
             if input_type == 'bbox':
-                input = torch.cat([x1, y1, x2, y2, scores[sets[s]].unsqueeze(1)], dim=1)
+                input = torch.cat([x1_centered, x2_centered, y1_centered, y2_centered, scores[sets[s]].unsqueeze(1)], dim=1)
             elif input_type == 'bbox_spacial':
-                input = torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean, set_ious_sum,
+                input = torch.cat([x1_centered, x2_centered, y1_centered, y2_centered, width, height, aspect_ratio, area, set_ious_mean, set_ious_sum,
                            set_dist_mean, set_dist_sum, scores[sets[s]].unsqueeze(1)], dim=1)
             elif input_type == 'bbox_spacial_vis':
-                input = torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean, set_ious_sum,
+                input = torch.cat([x1_centered, x2_centered, y1_centered, y2_centered, width, height, aspect_ratio, area, set_ious_mean, set_ious_sum,
                            set_dist_mean, set_dist_sum, feats[sets[s]], scores[sets[s]].unsqueeze(1)], dim=1)
             elif input_type == 'bbox_spacial_vis_label':
                 one_hot_classes = torch.zeros((1, num_classes)).repeat(len(_set), 1).cuda(device=device)
@@ -200,16 +200,15 @@ def forward_centroids(roi_head, multi_bboxes, cls_score, last_layer_feats, input
             inputs.append(input)
             input_labels.append(c)
             centroids_per_set.append(torch.mean(centroids, 0))
-
             pred = roi_head.set_forward6(input)
             pred = pred.unsqueeze(0)
-
             # de-normalization
-            pred[:, 0] = torch.mean(centroids, 0)[0] - pred[:, 0]
-            pred[:, 1] = torch.mean(centroids, 0)[1] - pred[:, 1]
-            pred[:, 2] = torch.mean(centroids, 0)[0] + pred[:, 2]
-            pred[:, 3] = torch.mean(centroids, 0)[1] + pred[:, 3]
-            preds.append(pred)
+            pred_decentered = torch.zeros((pred.shape[0], 4)).cuda(device=device)
+            pred_decentered[:, 0] = torch.mean(centroids, 0)[0] - pred[:, 0]
+            pred_decentered[:, 1] = torch.mean(centroids, 0)[1] - pred[:, 1]
+            pred_decentered[:, 2] = torch.mean(centroids, 0)[0] + pred[:, 2]
+            pred_decentered[:, 3] = torch.mean(centroids, 0)[1] + pred[:, 3]
+            preds.append(pred_decentered)
     if len(preds) > 0:
         preds_tensor = torch.stack(preds, dim=1).squeeze(0)
         # predicted_scores = roi_head.set_forward5(preds_tensor)
@@ -306,18 +305,18 @@ def forward_normalized(roi_head, multi_bboxes, cls_score, last_layer_feats, inpu
                 normalized_part = roi_head.normalize(torch.cat([x1, y1, x2, y2], dim=1))
                 input = torch.cat([normalized_part, scores[sets[s]].unsqueeze(1)], dim=1)
             elif input_type == 'bbox_spacial':
-                normalized_part = roi_head.normalize([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
-                                                      set_ious_sum, set_dist_mean, set_dist_sum], dim=1)
+                normalized_part = roi_head.normalize(torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
+                                                      set_ious_sum, set_dist_mean, set_dist_sum], dim=1))
                 input = torch.cat([normalized_part, scores[sets[s]].unsqueeze(1)], dim=1)
             elif input_type == 'bbox_spacial_vis':
-                normalized_part = roi_head.normalize([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
-                                                      set_ious_sum, set_dist_mean, set_dist_sum], dim=1)
+                normalized_part = roi_head.normalize(torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
+                                                      set_ious_sum, set_dist_mean, set_dist_sum], dim=1))
                 input = torch.cat([normalized_part, feats[sets[s]], scores[sets[s]].unsqueeze(1)], dim=1)
             elif input_type == 'bbox_spacial_vis_label':
                 one_hot_classes = torch.zeros((1, num_classes)).repeat(len(_set), 1).cuda(device=device)
                 one_hot_classes[:, c] = 1
-                normalized_part = roi_head.normalize([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
-                                                      set_ious_sum, set_dist_mean, set_dist_sum], dim=1)
+                normalized_part = roi_head.normalize(torch.cat([x1, y1, x2, y2, width, height, aspect_ratio, area, set_ious_mean,
+                                                      set_ious_sum, set_dist_mean, set_dist_sum], dim=1))
                 input = torch.cat([normalized_part, feats[sets[s]], one_hot_classes, scores[sets[s]].unsqueeze(1)], dim=1)
             else:
                 assert False, 'Unknown input type'

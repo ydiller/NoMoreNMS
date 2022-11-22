@@ -1,8 +1,8 @@
 #json split
-python tools/json_annotation_splitter.py  -s 0.02 /COCO/COCO2017/coco/annotations/instances_train2017.json /COCO/COCO2017/coco/annotations/instances_train2017_2.json /COCO/COCO2017/coco/annotations/instances_val2017_temp.json
+python tools/json_annotation_splitter.py  -s 0.5 /COCO/COCO2017/coco/annotations/instances_train2017_5k.json /COCO/COCO2017/coco/annotations/instances_train2017_2k.json /COCO/COCO2017/coco/annotations/instances_temp.json
 
 no-more-nms:
-nvidia-docker run --rm --name no-more-nms --gpus all --ipc=host --expose 22 -it \
+nvidia-docker run --rm --name ${USER}_no-more-nms --gpus all --ipc=host --expose 22 -it \
 -v /cortex/users/ydiller/data:/data \
 -v /cortex/data/images/COCO:/COCO \
 -v /cortex/data/images/pascal/VOCdevkit:/VOCdevkit \
@@ -22,19 +22,19 @@ pip install mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.5
 #coco
 python tools/train.py --config configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms.py --gpu-id 2 --seed 0
 python tools/train.py --config configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_end2end.py --gpu-id 2 --seed 0
-python tools/train.py --config configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets.py --gpu-id 2 --seed 0
-tools/dist_train.sh configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms.py 4 --seed 0  --with_wandb 1 
+python tools/train.py --config configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets.py --gpu-id 0 --seed 0 --with_wandb 1 --num_workers 8
+tools/dist_train.sh configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets.py 4 --seed 0  --with_wandb 1 
 
 #pascal voc
 python tools/train.py --config configs/pascal_voc/faster_rcnn_r50_fpn_1x_voc0712_deepsets.py --gpu-id 3 --seed 0
-
+python tools/train.py --config configs/pascal_voc/faster_rcnn_r50_fpn_1x_voc0712_soft_nms.py --gpu-id 3 --seed 0  --model_type retina --with_wandb 0
 
 ## test:
 # coco  
 python tools/test.py configs/faster_rcnn/faster_rcnn_r50_fpn_1x_coco.py /data/pretrained_models/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth --eval bbox  --gpu-id 3
 python tools/test.py configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_no_sweep.py work_dirs/faster_rcnn_r50_fpn_1x_nomorenms_giou/best_bbox_map_48_4.pth --eval bbox  --gpu-id 3
 python tools/test.py configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_end2end.py work_dirs/faster_rcnn_r50_fpn_1x_nomorenms_giou/epoch_4.pth --eval bbox  --gpu-id 3
-python tools/test.py configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets.py work_dirs/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets/best_bbox_mAP_iter_90000.pth --eval bbox  --gpu-id 3
+python tools/test.py configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms_bbox_valid_sets.py work_dirs/saved_models/best_bbox_mAP_0.444_iter_104500.pth --eval bbox  --gpu-id 0 --with_wandb
 ./tools/dist_test.sh configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms.py work_dirs/faster_rcnn_r50_fpn_1x_nomorenms_giou/epoch_2.pth 4 --eval bbox
 
 #pascal voc
@@ -59,7 +59,7 @@ DETR
 python tools/test.py configs/detr/detr_r50_8x2_150e_coco_v2.py /data/pretrained_models/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth --eval bbox  --gpu-id 2
 
 Copy files
-cp -r /cortex/users/ydiller/code/mmdetection/results/ds_error_test_set_giou/* /home/lab/dillery/www/imgs/ds_error_test_set_giou
+cp -r /cortex/users/ydiller/code/mmdetection/results/ds_error_test_set_giou/* /home/lab/dillery/www/imgs/nms_with_sets
 
 browse dataset
 python tools/misc/browse_dataset.py configs/faster_rcnn/faster_rcnn_r50_fpn_1x_nomorenms.py --output-dir results/browse_dataset/coco_rotations/

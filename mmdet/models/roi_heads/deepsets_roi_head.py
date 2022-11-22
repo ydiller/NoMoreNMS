@@ -309,7 +309,7 @@ class DeepsetsRoIHead(BaseRoIHead, BBoxTestMixin, MaskTestMixin):
                            "max score predictions": loss_deepsets_i['ds_pred_on_max']
                            })
         else:
-            if self.train_cfg.with_wandb:
+            if self.train_cfg.rcnn.with_wandb:
                 wandb.log({"MSE loss": loss_deepsets["loss_deepsets_ce"],
                            "ds_acc": loss_deepsets["ds_acc"],
                            "iou_error": loss_deepsets["iou_error"],

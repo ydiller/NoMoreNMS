@@ -36,3 +36,66 @@ def find_latest_checkpoint(path, suffix='pth'):
             latest = count
             latest_path = checkpoint
     return latest_path
+
+def freeze_layers(model, model_type):
+    if model_type == 'faster':
+        for v in model.parameters():
+            v.requires_grad = False
+        # for v in model.backbone.parameters():
+        #     v.requires_grad = False
+        # for v in model.neck.parameters():
+        #     v.requires_grad = False
+        # for v in model.rpn_head.parameters():
+        #     v.requires_grad = False
+        # for v in model.roi_head.bbox_head.shared_fcs.parameters():
+        #     v.requires_grad = False
+
+        # for v in model.roi_head.ds1.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds2.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds3.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds4.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds5.parameters():
+        #     v.requires_grad = True
+
+        for v in model.roi_head.ln1.parameters():
+            v.requires_grad = True
+        # for v in model.roi_head.ln2.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ln3.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ln4.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ln5.parameters():
+        #     v.requires_grad = True
+        for v in model.roi_head.ln6.parameters():
+            v.requires_grad = True
+        # for v in model.roi_head.ln7.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.dropout.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.bn1.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.bn2.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.bn3.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds1.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds2.parameters():
+        #     v.requires_grad = True
+        # for v in model.roi_head.ds3.parameters():
+        #     v.requires_grad = True
+
+        for v in model.roi_head.set_transformer.parameters():
+            v.requires_grad = True
+        # for v in model.roi_head.set_transformer2.parameters():
+        #     v.requires_grad = True
+        return model
+    elif model_type == 'retina':
+        return model
+    else:
+        raise ValueError

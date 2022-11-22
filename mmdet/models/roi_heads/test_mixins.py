@@ -1,16 +1,13 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import sys
 import warnings
-
 import numpy as np
 import torch
-
 from mmdet.core import (bbox2roi, bbox_mapping, merge_aug_bboxes,
                         merge_aug_masks, multiclass_nms)
-
 if sys.version_info >= (3, 7):
     from mmdet.utils.contextmanagers import completed
-
+from mmdet.models.roi_heads.deepsets_forward import *
 
 class BBoxTestMixin:
 
@@ -515,9 +512,10 @@ class BBoxTestMixin:
 
             det_bbox_list = []
             det_labels_list = []
-            sets, preds, predicted_scores, set_labels, set_bboxes, set_scores, centroids, normalization_data = self._forward_deepsets(bboxes, scores, feats[i],
-                                                                             mode='test', ds_cfg=rcnn_test_cfg['deepsets_config'],
-                                                                             img_shape=img_shapes[i], device=device, score_thr=0.05)
+            sets, preds, predicted_scores, set_labels, set_bboxes, set_scores, centroids, normalization_data = \
+                                         self.bbox_prediction_type(self, bboxes, scores, feats[i], self.input_type,
+                                         mode='test', ds_cfg=rcnn_test_cfg['deepsets_config'],
+                                         img_shape=img_shapes[i], device=device, score_thr=0.05)
             one = torch.ones((1, 1)).cuda(device=device)
             for j, _set in enumerate(sets):
                 # bbox = preds[j][:4].T
@@ -537,7 +535,7 @@ class BBoxTestMixin:
 
                 # new architecture
                 bbox = preds[j].unsqueeze(0)
-                score = predicted_scores[j]
+                score = predicted_scores[j]  # ap loss score
 
                 if set_bboxes[j][:, 0].sum() == set_bboxes[j][0, 0]:  # only one element in set
                     bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]
@@ -546,10 +544,11 @@ class BBoxTestMixin:
                 # nms:
                 # bbox[:, :4] = set_bboxes[j][torch.argmax(set_scores[j])]
                 score = torch.max(set_scores[j])
+                # score = torch.mean(set_scores[j])
                 # score = self.weighted_average_score(set_scores[j]) * torch.ones(1, 1).cuda(device=device)
                 # bbox = torch.cat([bbox, score, one * set_score, one * set_score], dim=1)
                 # last item is set id for show_viz, or score for pascalvoc
-                bbox = torch.cat([bbox, one * score, one * j, one * j], dim=1)
+                bbox = torch.cat([bbox, one * score, one * j, one * score], dim=1)
                 det_bbox_list.append(bbox)
                 label = set_labels[j].unsqueeze(0)
                 det_labels_list.append(label)

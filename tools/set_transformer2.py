@@ -90,7 +90,8 @@ class SetTransformer(nn.Module):
         self.mode = mode
 
     def forward(self, X):
-        out = self.dec(self.enc(X)).squeeze()
+        x = self.enc(X)
+        out = self.dec(x).squeeze()
         return out
 
 

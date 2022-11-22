@@ -4,6 +4,10 @@ deepsets_cfg = dict(
                     type='MSELoss', loss_weight=0.0),
                 loss_ce=dict(
                     type='CrossEntropyLoss', loss_weight=1.0),
+                # 'forward_box' |'forward_centroids' | 'forward_normalized'
+                bbox_prediction_type='forward_normalized',
+                # 'bbox' | 'bbox_spacial' | 'bbox_spacial_vis' | 'bbox_spacial_vis_label'
+                input_type='bbox_spacial_vis',
                 ds1=1000,
                 ds2=600,
                 ds3=300,
@@ -16,14 +20,25 @@ deepsets_cfg = dict(
                 indim=13,  # 1117
                 dim_input=13,
                 dim_output=5,
-                dim_hidden=16,
+                dim_hidden=32,
                 num_inds=16,
                 num_heads=4,
-                l1_weight=2,
+                l1_weight=0.02,
                 giou_weight=2,
                 ap_weight=2,
                 giou_coef=0.3)
-
+if deepsets_cfg['input_type'] == 'bbox':
+    deepsets_cfg['indim'] = 5
+    deepsets_cfg['dim_input'] = 5
+elif deepsets_cfg['input_type'] == 'bbox_spacial':
+    deepsets_cfg['indim'] = 13
+    deepsets_cfg['dim_input'] = 13
+elif deepsets_cfg['input_type'] == 'bbox_spacial_vis':
+    deepsets_cfg['indim'] = 13 + 1024
+    deepsets_cfg['dim_input'] = 256
+elif deepsets_cfg['input_type'] == 'bbox_spacial_vis_label':
+    deepsets_cfg['indim'] = 13 + 1024 + 80
+    deepsets_cfg['dim_input'] = 256
 # model settings
 model = dict(
     type='FasterRCNN',
@@ -186,10 +201,11 @@ test_pipeline = [
 ]
 data = dict(
     samples_per_gpu=4,
+    val_samples_per_gpu=8,
     workers_per_gpu=8,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/instances_train2017.json',  # 50k, 10k, 5k, 2k, 500
+        ann_file=data_root + 'annotations/instances_train2017_50k.json',  # 50k, 10k, 5k, 2k, 500
         img_prefix=data_root + 'images/train2017/',
         pipeline=train_pipeline),
     val=dict(
@@ -219,7 +235,7 @@ lr_config = dict(
     by_epoch=False,
     policy='poly',
     warmup='linear',
-    warmup_iters=5000,
+    warmup_iters=3000,
     warmup_ratio=0.001,
     min_lr=0.00001)
 # lr_config = dict(

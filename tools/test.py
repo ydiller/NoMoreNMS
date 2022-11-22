@@ -223,7 +223,7 @@ def main():
         model.CLASSES = dataset.CLASSES
 
     if not distributed:
-        viz_dir = 'results/ds_error_test_set_giou'
+        viz_dir = 'results/nms_with_sets'
         show_viz = 0
         if show_viz:
             clean_dir(viz_dir)

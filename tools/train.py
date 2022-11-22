@@ -16,7 +16,7 @@ from mmdet import __version__
 from mmdet.apis import init_random_seed, set_random_seed, train_detector
 from mmdet.datasets import build_dataset
 from mmdet.models import build_detector
-from mmdet.utils import collect_env, get_root_logger, setup_multi_processes
+from mmdet.utils import collect_env, get_root_logger, setup_multi_processes, freeze_layers
 
 
 def parse_args():
@@ -85,14 +85,19 @@ def parse_args():
     parser.add_argument('--bs', type=int, default=None)
     parser.add_argument('--dim_input', type=int, default=None)
     parser.add_argument('--dim_output', type=int, default=None)
-    parser.add_argument('--l1_weight', type=int, default=None)
+    parser.add_argument('--l1_weight', type=float, default=None)
     parser.add_argument('--giou_weight', type=int, default=None)
+    parser.add_argument('--ap_weight', type=int, default=None)
     parser.add_argument('--giou_coef', type=float, default=None)
     parser.add_argument('--set_size', type=int, default=None)
     parser.add_argument('--dim_hidden', type=int, default=None)
     parser.add_argument('--num_inds', type=int, default=None)
     parser.add_argument('--num_heads', type=int, default=None)
+    parser.add_argument('--bbox_prediction_type', type=str, default=None)
+    parser.add_argument('--input_type', type=str, default=None)
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--model_type', type=str, default='faster')
+    parser.add_argument('--flips', type=int, default=2)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -167,12 +172,12 @@ def main():
         cfg.data.samples_per_gpu = args.bs
     if args.set_size:
         cfg.model.train_cfg.rcnn.deepsets_config.set_size = args.set_size
-    if args.dim_input:
-        cfg.model.train_cfg.rcnn.deepsets_config.dim_input = args.dim_input
-    if args.l1_weight:
+    if args.l1_weight is not None:
         cfg.model.train_cfg.rcnn.deepsets_config.l1_weight = args.l1_weight
-    if args.giou_weight:
+    if args.giou_weight is not None:
         cfg.model.train_cfg.rcnn.deepsets_config.giou_weight = args.giou_weight
+    if args.ap_weight is not None:
+        cfg.model.train_cfg.rcnn.deepsets_config.ap_weight = args.ap_weight
     if args.giou_coef:
         cfg.model.train_cfg.rcnn.deepsets_config.giou_coef = args.giou_coef
     if args.dim_hidden:
@@ -183,9 +188,70 @@ def main():
         cfg.model.train_cfg.rcnn.deepsets_config.num_inds = args.num_inds
     if args.num_heads:
         cfg.model.train_cfg.rcnn.deepsets_config.num_heads = args.num_heads
+    if args.num_heads:
+        cfg.model.train_cfg.rcnn.deepsets_config.num_heads = args.num_heads
+    if args.bbox_prediction_type:
+        cfg.model.train_cfg.rcnn.deepsets_config.bbox_prediction_type = args.bbox_prediction_type
+    if args.input_type:
+        cfg.model.train_cfg.rcnn.deepsets_config.input_type = args.input_type
+        if cfg.model.train_cfg.rcnn.deepsets_config.input_type == 'bbox':
+            cfg.model.train_cfg.rcnn.deepsets_config.indim = 5
+            cfg.model.train_cfg.rcnn.deepsets_config.dim_input = 5
+        elif cfg.model.train_cfg.rcnn.deepsets_config.input_type == 'bbox_spacial':
+            cfg.model.train_cfg.rcnn.deepsets_config.indim = 13
+            cfg.model.train_cfg.rcnn.deepsets_config.dim_input = 13
+        elif cfg.model.train_cfg.rcnn.deepsets_config.input_type == 'bbox_spacial_vis':
+            cfg.model.train_cfg.rcnn.deepsets_config.indim = 13 + 1024
+            cfg.model.train_cfg.rcnn.deepsets_config.dim_input = 256
+        elif cfg.model.train_cfg.rcnn.deepsets_config.input_type == 'bbox_spacial_vis_label':
+            cfg.model.train_cfg.rcnn.deepsets_config.indim = 13 + 1024 + 80
+            cfg.model.train_cfg.rcnn.deepsets_config.dim_input = 256
+    if args.dim_input:
+        cfg.model.train_cfg.rcnn.deepsets_config.dim_input = args.dim_input
     if args.num_workers:
         cfg.data.workers_per_gpu = args.num_workers
-
+    if args.flips == 2:
+        img_norm_cfg = dict(
+            mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+        cfg.data.train.pipeline = [
+                dict(type='LoadImageFromFile'),
+                dict(type='LoadAnnotations', with_bbox=True),
+                dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+                dict(type='RandomFlip', flip_ratio=0.5, direction=['horizontal', 'vertical']),
+                # dict(type='Rotate', prob=0.5, level=2),
+                dict(type='Normalize', **img_norm_cfg),
+                dict(type='Pad', size_divisor=32),
+                dict(type='DefaultFormatBundle'),
+                dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
+            ]
+    elif args.flips == 1:
+        img_norm_cfg = dict(
+            mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+        cfg.data.train.pipeline = [
+                dict(type='LoadImageFromFile'),
+                dict(type='LoadAnnotations', with_bbox=True),
+                dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+                dict(type='RandomFlip', flip_ratio=0.5, direction=['horizontal']),
+                # dict(type='Rotate', prob=0.5, level=2),
+                dict(type='Normalize', **img_norm_cfg),
+                dict(type='Pad', size_divisor=32),
+                dict(type='DefaultFormatBundle'),
+                dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
+            ]
+    else:
+        img_norm_cfg = dict(
+            mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+        cfg.data.train.pipeline = [
+                dict(type='LoadImageFromFile'),
+                dict(type='LoadAnnotations', with_bbox=True),
+                dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+                dict(type='RandomFlip', flip_ratio=0.0, direction=['horizontal']),
+                # dict(type='Rotate', prob=0.5, level=2),
+                dict(type='Normalize', **img_norm_cfg),
+                dict(type='Pad', size_divisor=32),
+                dict(type='DefaultFormatBundle'),
+                dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
+            ]
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
     # dump config
@@ -228,8 +294,8 @@ def main():
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
-        val_dataset.pipeline = cfg.data.train.pipeline  # coco
-        # val_dataset.pipeline = cfg.data.train.dataset.pipeline  # pascalvoc
+        # val_dataset.pipeline = cfg.data.train.pipeline  # coco
+        val_dataset.pipeline = cfg.data.train.dataset.pipeline  # pascalvoc
         datasets.append(build_dataset(val_dataset))
     if cfg.checkpoint_config is not None:
         # save mmdet version, config file content and class names in
@@ -241,62 +307,12 @@ def main():
     model.CLASSES = datasets[0].CLASSES
 
     print('train deepsets only')
-    for v in model.parameters():
-        v.requires_grad = False
 
-    # for v in model.backbone.parameters():
-    #     v.requires_grad = False
-    # for v in model.neck.parameters():
-    #     v.requires_grad = False
-    # for v in model.rpn_head.parameters():
-    #     v.requires_grad = False
-    # for v in model.roi_head.bbox_head.shared_fcs.parameters():
-    #     v.requires_grad = False
-
-    # for v in model.roi_head.ds1.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds2.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds3.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds4.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds5.parameters():
-    #     v.requires_grad = True
-
-    for v in model.roi_head.ln1.parameters():
-        v.requires_grad = True
-    # for v in model.roi_head.ln2.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ln3.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ln4.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ln5.parameters():
-    #     v.requires_grad = True
-    for v in model.roi_head.ln6.parameters():
-        v.requires_grad = True
-    # for v in model.roi_head.ln7.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.dropout.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.bn1.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.bn2.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.bn3.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds1.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds2.parameters():
-    #     v.requires_grad = True
-    # for v in model.roi_head.ds3.parameters():
-    #     v.requires_grad = True
-
-    for v in model.roi_head.set_transformer.parameters():
-        v.requires_grad = True
-    # for v in model.roi_head.set_transformer2.parameters():
-    #     v.requires_grad = True
+    model = freeze_layers(model, model_type=args.model_type)
+    # get number of parameters
+    # import numpy as np
+    # model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    # params = sum([np.prod(p.size()) for p in model_parameters])
 
     train_detector(
         model,

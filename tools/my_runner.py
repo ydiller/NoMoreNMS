@@ -17,7 +17,7 @@ import logging
 import os.path as osp
 import warnings
 from abc import ABCMeta, abstractmethod
-
+from datetime import datetime
 import torch
 from torch.optim import Optimizer
 import mmcv
@@ -143,6 +143,7 @@ class MyRunner(BaseRunner):
             outputs = self.batch_processor(
                 self.model, data_batch, train_mode=train_mode, **kwargs)
         elif train_mode:
+            data_batch['iter'] = self._epoch * len(self.data_loader) + self.inner_iter
             outputs = self.model.train_step(data_batch, self.optimizer,
                                             **kwargs)
         else:
@@ -318,8 +319,9 @@ class MyRunner(BaseRunner):
             # there will be problems with resumed checkpoints.
             # More details in https://github.com/open-mmlab/mmcv/pull/1108
         meta.update(epoch=self.epoch + 1, iter=self.iter)
-
-        filename = filename_tmpl.format(self.epoch + 1)
+        date_time = datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
+        filename = f"{date_time}_{self.model.module.roi_head.input_type}_{self.model.module.roi_head.dim_input}_epoch_{self.epoch + 1}.pth"
+        # filename = filename_tmpl.format(self.epoch + 1)
         filepath = osp.join(out_dir, filename)
         optimizer = self.optimizer if save_optimizer else None
         save_checkpoint(self.model, filepath, optimizer=optimizer, meta=meta)
